@@ -168,3 +168,6 @@ cython_debug/
 # VSCode
 *.code-workspace
 .vscode/
+data/
+old/
+playground.ipynb
