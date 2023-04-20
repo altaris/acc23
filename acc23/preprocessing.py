@@ -3,7 +3,7 @@
 import re
 from math import nan
 from pathlib import Path
-from typing import Iterable, Union
+from typing import Any, Iterable, Optional, Union
 
 import numpy as np
 import pandas as pd
@@ -13,7 +13,6 @@ from PIL import Image
 from sklearn.base import TransformerMixin
 from sklearn.preprocessing import (
     FunctionTransformer,
-    LabelBinarizer,
     MinMaxScaler,
     MultiLabelBinarizer,
 )
@@ -341,21 +340,205 @@ ALLERGENS = [
     "Zea_m_14",
 ]
 
+CLASSES = {
+    "Chip_Type": ["ALEX", "ISAC_V1", "ISAC_V2"],
+    "French_Residence_Department": [
+        "deptA",
+        "deptAA",
+        "deptAAA",
+        "deptAAAA",
+        "deptB",
+        "deptBB",
+        "deptBBB",
+        "deptBBBB",
+        "deptC",
+        "deptCC",
+        "deptCCC",
+        "deptCCCC",
+        "deptD",
+        "deptDD",
+        "deptDDD",
+        "deptDDDDD",
+        "deptE",
+        "deptEE",
+        "deptEEE",
+        "deptF",
+        "deptFF",
+        "deptFFF",
+        "deptG",
+        "deptGG",
+        "deptGGG",
+        "deptH",
+        "deptHH",
+        "deptHHH",
+        "deptI",
+        "deptII",
+        "deptIII",
+        "deptJ",
+        "deptJJ",
+        "deptJJJ",
+        "deptK",
+        "deptKK",
+        "deptKKK",
+        "deptL",
+        "deptLL",
+        "deptLLL",
+        "deptM",
+        "deptMM",
+        "deptMMM",
+        "deptN",
+        "deptNN",
+        "deptNNN",
+        "deptO",
+        "deptOO",
+        "deptOOO",
+        "deptP",
+        "deptPP",
+        "deptPPP",
+        "deptQ",
+        "deptQQ",
+        "deptQQQ",
+        "deptR",
+        "deptRR",
+        "deptRRR",
+        "deptS",
+        "deptSS",
+        "deptSSS",
+        "deptT",
+        "deptTT",
+        "deptTTT",
+        "deptU",
+        "deptUU",
+        "deptUUU",
+        "deptV",
+        "deptVV",
+        "deptVVV",
+        "deptW",
+        "deptWW",
+        "deptWWW",
+        "deptX",
+        "deptXX",
+        "deptXXX",
+        "deptY",
+        "deptYY",
+        "deptYYY",
+        "deptZ",
+        "deptZZ",
+        "deptZZZ",
+    ],
+    "French_Region": [
+        "regionA",
+        "regionB",
+        "regionC",
+        "regionD",
+        "regionE",
+        "regionF",
+        "regionG",
+        "regionH",
+        "regionI",
+        "regionJ",
+        "regionK",
+        "regionL",
+        "regionM",
+        "regionN",
+        "regionO",
+    ],
+    "Food_Type_0": [
+        "Egg",
+        "Fish",
+        "Mammalian Milk",
+        "Other",
+        "Peanut",
+        "Tree Nuts",
+    ],
+    "Treatment_of_rhinitis": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5",  # not in the spec but see train.csv 2637
+        "9",
+    ],
+    "Treatment_of_athsma": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5",
+        "6",
+        "7",
+        "8",
+        "9",
+        "10",
+    ],
+    "Age_of_onsets": ["1", "2", "3", "4", "5", "6", "9"],
+    "General_cofactors": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5",
+        "6",
+        "7",
+        "8",
+        "9",  # TODO: 9 can appear in multilabel cases (e.g. train 2262)
+        "10",
+        "11",
+        "12",
+    ],
+    "Treatment_of_atopic_dematitis": ["1", "2", "3", "4", "5", "6", "7", "9"],
+}
+"""Classes of categorical columns"""
+
+TARGETS = [
+    "Allergy_Present",
+    "Severe_Allergy",
+    "Respiratory_Allergy",
+    "Food_Allergy",
+    "Venom_Allergy",
+    "Type_of_Respiratory_Allergy_ARIA",
+    "Type_of_Respiratory_Allergy_CONJ",
+    "Type_of_Respiratory_Allergy_GINA",
+    "Type_of_Respiratory_Allergy_IGE_Pollen_Gram",
+    "Type_of_Respiratory_Allergy_IGE_Pollen_Herb",
+    "Type_of_Respiratory_Allergy_IGE_Pollen_Tree",
+    "Type_of_Respiratory_Allergy_IGE_Dander_Animals",
+    "Type_of_Respiratory_Allergy_IGE_Mite_Cockroach",
+    "Type_of_Respiratory_Allergy_IGE_Molds_Yeast",
+    "Type_of_Food_Allergy_Aromatics",
+    "Type_of_Food_Allergy_Other",
+    "Type_of_Food_Allergy_Cereals_&_Seeds",
+    "Type_of_Food_Allergy_Egg",
+    "Type_of_Food_Allergy_Fish",
+    "Type_of_Food_Allergy_Fruits_and_Vegetables",
+    "Type_of_Food_Allergy_Mammalian_Milk",
+    "Type_of_Food_Allergy_Oral_Syndrom",
+    "Type_of_Food_Allergy_Other_Legumes",
+    "Type_of_Food_Allergy_Peanut",
+    "Type_of_Food_Allergy_Shellfish",
+    "Type_of_Food_Allergy_TPO",
+    "Type_of_Food_Allergy_Tree_Nuts",
+    "Type_of_Venom_Allergy_ATCD_Venom",
+    "Type_of_Venom_Allergy_IGE_Venom",
+]
+
 
 class MultiLabelSplitBinarizer(TransformerMixin):
     """
     Essentially applies a MultiLabelBinarizer to column that contains
     comma-separated lists of labels. Plays nice with sklearn-pandas since the
     internal `MultiLabelBinarizer.classes_` is accessible. For some reason
-    deriving this class from `MultiLabelBinarizer` directly doesn't work as
+    deriving this class from `MultiLabelBinarizer` directly doesn"t work as
     well...
     """
 
     _multilabel_binarizer: MultiLabelBinarizer
     _split_delimiters: str
 
-    def __init__(self, split_delimiters: str = ","):
-        self._multilabel_binarizer = MultiLabelBinarizer()
+    def __init__(
+        self, classes: Optional[list] = None, split_delimiters: str = ","
+    ):
+        self._multilabel_binarizer = MultiLabelBinarizer(classes=classes)
         self._split_delimiters = split_delimiters
 
     @property
@@ -383,7 +566,6 @@ class MultiLabelSplitBinarizer(TransformerMixin):
 
 def get_dtypes() -> dict:
     """Gets the types the columns of `train.csv` and `test.csv` should have."""
-
     a = {
         "Patient_ID": str,
         "Chip_Code": str,
@@ -404,41 +586,10 @@ def get_dtypes() -> dict:
         "Skin_Symptoms": np.uint8,
         "General_cofactors": str,  # Comma-sep lst of codes
         "Treatment_of_atopic_dematitis": str,  # Comma-sep lst of treatment codes
-        # LABELS ------------------------------------
-        "Allergy_Present": np.uint8,  # no nans
-        "Severe_Allergy": np.uint8,  # no nans
-        "Respiratory_Allergy": np.uint8,  # no nans
-        "Food_Allergy": np.uint8,  # no nans
-        "Venom_Allergy": np.uint8,  # no nans
-        "Type_of_Respiratory_Allergy_ARIA": np.uint8,  # no nans
-        "Type_of_Respiratory_Allergy_CONJ": np.uint8,  # no nans
-        "Type_of_Respiratory_Allergy_GINA": np.uint8,  # no nans
-        "Type_of_Respiratory_Allergy_IGE_Pollen_Gram": np.uint8,  # no nans
-        "Type_of_Respiratory_Allergy_IGE_Pollen_Herb": np.uint8,  # no nans
-        "Type_of_Respiratory_Allergy_IGE_Pollen_Tree": np.uint8,  # no nans
-        "Type_of_Respiratory_Allergy_IGE_Dander_Animals": np.uint8,  # no nans
-        "Type_of_Respiratory_Allergy_IGE_Mite_Cockroach": np.uint8,  # no nans
-        "Type_of_Respiratory_Allergy_IGE_Molds_Yeast": np.uint8,  # no nans
-        "Type_of_Food_Allergy_Aromatics": np.uint8,  # no nans
-        "Type_of_Food_Allergy_Other": np.uint8,  # no nans
-        "Type_of_Food_Allergy_Cereals_&_Seeds": np.uint8,  # no nans
-        "Type_of_Food_Allergy_Egg": np.uint8,  # no nans
-        "Type_of_Food_Allergy_Fish": np.uint8,  # no nans
-        "Type_of_Food_Allergy_Fruits_and_Vegetables": np.uint8,  # no nans
-        "Type_of_Food_Allergy_Mammalian_Milk": np.uint8,  # no nans
-        "Type_of_Food_Allergy_Oral_Syndrom": np.uint8,  # no nans
-        "Type_of_Food_Allergy_Other_Legumes": np.uint8,  # no nans
-        "Type_of_Food_Allergy_Peanut": np.uint8,  # no nans
-        "Type_of_Food_Allergy_Shellfish": np.uint8,  # no nans
-        "Type_of_Food_Allergy_TPO": np.uint8,  # no nans
-        "Type_of_Food_Allergy_Tree_Nuts": np.uint8,  # no nans
-        "Type_of_Venom_Allergy_ATCD_Venom": np.uint8,  # no nans
-        "Type_of_Venom_Allergy_IGE_Venom": np.uint8,  # no nans
     }
-
     b = {allergen: np.float32 for allergen in ALLERGENS}
-
-    return {**a, **b}
+    c = {target: np.uint8 for target in TARGETS}
+    return {**a, **b, **c}
 
 
 def bruteforce_test_dtypes(csv_file_path: Union[str, Path]):
@@ -457,8 +608,8 @@ def bruteforce_test_dtypes(csv_file_path: Union[str, Path]):
         except Exception as e:
             n, t = list(partial_dtypes.items())[-1]
             logging.error(
-                "Column type error: idx={}, name='{}', set dtype={}, "
-                "error='{}'",
+                "Column type error: idx={}, name={}, set dtype={}, "
+                "error={}",
                 i,
                 n,
                 t,
@@ -474,7 +625,7 @@ def load_csv(path: Union[str, Path]) -> pd.DataFrame:
     """
     dtypes = get_dtypes()
     df = pd.read_csv(path, dtype=dtypes)
-    # Apparently 1 time isn't enough
+    # Apparently 1 time isn"t enough
     df = df.astype({c: t for c, t in dtypes.items() if c in df.columns})
     return preprocess_dataframe(df)
 
@@ -497,11 +648,22 @@ def load_image(path: Union[str, Path]) -> torch.Tensor:
     return img
 
 
-def map_split(x: np.ndarray, delimiters: str = ","):  # TODO type output
+def map_replace(x: np.ndarray, val: Any, rep: Any) -> np.ndarray:
+    """Splits entries of an array of strings."""
+    return np.where(x == val, rep, x)
+
+
+def map_split(x: np.ndarray, delimiters: str = ",") -> Iterable[str]:
     """
     Splits entries of an array of strings. Also removed unnecessary spaces.
     """
-    return map(lambda a: re.split(f"\\s*[{delimiters}]\\s*", a.strip()), x)
+    values_to_ignore = ["", "nan"]
+
+    def f(s: str) -> Iterable[str]:
+        a = re.split(f"\\s*[{delimiters}]\\s*", s.strip())
+        return [b for b in a if b not in values_to_ignore]
+
+    return map(f, x)  # type: ignore
 
 
 def preprocess_dataframe(df: pd.DataFrame) -> pd.DataFrame:
@@ -510,66 +672,122 @@ def preprocess_dataframe(df: pd.DataFrame) -> pd.DataFrame:
 
     TODO: List all of them.
     """
+    general_transforms = [
+        (
+            ["Chip_Type"],
+            MultiLabelBinarizer(classes=CLASSES["Chip_Type"]),
+        ),
+        ("Chip_Image_Name", FunctionTransformer()),  # identity
+        (["Age"], MinMaxScaler()),
+        ("Gender", FunctionTransformer()),  # identity
+        # ("Blood_Month_sample", LabelBinarizer()),
+        (
+            ["French_Residence_Department"],
+            MultiLabelBinarizer(
+                classes=CLASSES["French_Residence_Department"]
+            ),
+        ),
+        (
+            ["French_Region"],
+            MultiLabelBinarizer(classes=CLASSES["French_Region"]),
+        ),
+        ("Rural_or_urban_area", FunctionTransformer()),  # identity
+        ("Sensitization", FunctionTransformer()),  # identity
+        (
+            "Food_Type_0",
+            MultiLabelSplitBinarizer(classes=CLASSES["Food_Type_0"]),
+        ),
+        # ("Food_Type_2", MultiLabelSplitBinarizer()),
+        (
+            "Treatment_of_rhinitis",
+            make_transformer_pipeline(
+                FunctionTransformer(
+                    map_replace, kw_args={"val": "0.0", "rep": ""}
+                ),
+                FunctionTransformer(
+                    map_replace, kw_args={"val": "1.0", "rep": "1"}
+                ),
+                FunctionTransformer(
+                    map_replace, kw_args={"val": "2.0", "rep": "2"}
+                ),
+                FunctionTransformer(
+                    map_replace, kw_args={"val": "3.0", "rep": "3"}
+                ),
+                FunctionTransformer(
+                    map_replace, kw_args={"val": "4.0", "rep": "4"}
+                ),
+                FunctionTransformer(
+                    map_replace, kw_args={"val": "5.0", "rep": "5"}
+                ),
+                FunctionTransformer(
+                    map_replace, kw_args={"val": "9.0", "rep": "9"}
+                ),
+                MultiLabelSplitBinarizer(
+                    classes=CLASSES["Treatment_of_rhinitis"],
+                    split_delimiters=",. ",
+                ),
+            ),
+        ),
+        (
+            "Treatment_of_athsma",
+            make_transformer_pipeline(
+                FunctionTransformer(
+                    map_replace, kw_args={"val": "0", "rep": ""}
+                ),
+                MultiLabelSplitBinarizer(
+                    classes=CLASSES["Treatment_of_athsma"],
+                    split_delimiters=",. ",
+                ),
+            ),
+        ),
+        (
+            "Age_of_onsets",
+            make_transformer_pipeline(
+                FunctionTransformer(
+                    map_replace, kw_args={"val": "0", "rep": ""}
+                ),
+                MultiLabelSplitBinarizer(classes=CLASSES["Age_of_onsets"]),
+            ),
+        ),
+        (
+            "Skin_Symptoms",
+            FunctionTransformer(map_replace, kw_args={"val": 9, "rep": nan}),
+        ),
+        (
+            "General_cofactors",
+            make_transformer_pipeline(
+                FunctionTransformer(
+                    map_replace, kw_args={"val": "0", "rep": ""}
+                ),
+                MultiLabelSplitBinarizer(
+                    classes=CLASSES["General_cofactors"],
+                    split_delimiters=",. ",
+                ),
+            ),
+        ),
+        (
+            "Treatment_of_atopic_dematitis",
+            make_transformer_pipeline(
+                FunctionTransformer(
+                    map_replace, kw_args={"val": "0", "rep": ""}
+                ),
+                MultiLabelSplitBinarizer(
+                    classes=CLASSES["Treatment_of_atopic_dematitis"],
+                    split_delimiters=",. ",
+                ),
+            ),
+        ),
+    ]
+    allergen_trasforms = [
+        ([allergen], MinMaxScaler()) for allergen in ALLERGENS
+    ]
+    target_transforms = [
+        ([target], FunctionTransformer())
+        for target in TARGETS
+        if target in df.columns
+    ]
     mapper = DataFrameMapper(
-        [
-            ("Chip_Type", LabelBinarizer()),
-            ("Chip_Image_Name", FunctionTransformer()),  # identity
-            (["Age"], MinMaxScaler()),
-            ("Gender", FunctionTransformer()),  # identity
-            # ("Blood_Mounth_sample", FunctionTransformer()),  # TODO
-            ("French_Residence_Department", LabelBinarizer()),
-            ("French_Region", LabelBinarizer()),
-            ("Rural_or_urban_area", FunctionTransformer(replace_9_by_nan)),
-            ("Sensitization", FunctionTransformer()),  # identity
-            ("Food_Type_0", MultiLabelSplitBinarizer()),
-            # ("Food_Type_2", MultiLabelSplitBinarizer()),
-            (
-                "Treatment_of_rhinitis",
-                make_transformer_pipeline(
-                    FunctionTransformer(replace_9_by_nan),
-                    MultiLabelSplitBinarizer(),
-                ),
-            ),
-            (
-                "Treatment_of_athsma",
-                make_transformer_pipeline(
-                    FunctionTransformer(replace_9_by_nan),
-                    MultiLabelSplitBinarizer(),
-                ),
-            ),
-            (
-                "Age_of_onsets",
-                make_transformer_pipeline(
-                    FunctionTransformer(replace_9_by_nan),
-                    MultiLabelSplitBinarizer(),
-                ),
-            ),
-            ("Skin_Symptoms", FunctionTransformer(replace_9_by_nan)),
-            (
-                # TODO: 9 can appear in multilabel cases (e.g. 2262)
-                "General_cofactors",
-                make_transformer_pipeline(
-                    FunctionTransformer(replace_9_by_nan),
-                    MultiLabelSplitBinarizer(split_delimiters=",. "),
-                ),
-            ),
-            (
-                "Treatment_of_atopic_dematitis",
-                make_transformer_pipeline(
-                    FunctionTransformer(replace_9_by_nan),
-                    MultiLabelSplitBinarizer(split_delimiters=",. "),
-                ),
-            ),
-        ]
-        + [([allergen], MinMaxScaler()) for allergen in ALLERGENS],
+        general_transforms + allergen_trasforms + target_transforms,
         df_out=True,
     )
     return mapper.fit_transform(df)
-
-
-# pylint: disable=unnecessary-lambda-assignment
-def replace_9_by_nan(x: np.ndarray) -> np.ndarray:
-    """Self explanatory."""  # TODO: maybe explain some more
-    n = "nan" if x.dtype == "object" else nan
-    predicate = lambda a: a in [9, "9", "9.0"]
-    return np.where(list(map(predicate, x)), n, x)  # type: ignore

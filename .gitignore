@@ -170,4 +170,5 @@ cython_debug/
 .vscode/
 data/
 old/
-playground.ipynb
+out/
+*.ipynb
