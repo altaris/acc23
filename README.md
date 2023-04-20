@@ -4,6 +4,12 @@
 [![License](https://img.shields.io/badge/license-MIT-green)](https://choosealicense.com/licenses/mit/)
 [![Code style](https://img.shields.io/badge/style-black-black)](https://pypi.org/project/black)
 
+# Submitting via `acc23` CLI:
+
+```sh
+. ./secret.env && python3 -m acc23 submit -t "$TOKEN" out.csv dummy.ipynb
+```
+
 # Contributing
 
 ## Dependencies

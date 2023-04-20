@@ -1,11 +1,11 @@
-"""
-Entry point
-"""
+# pylint: disable=import-outside-toplevel
+"""Entry point"""
 __docformat__ = "google"
 
 
 import os
 import sys
+from pathlib import Path
 
 import click
 from loguru import logger as logging
@@ -40,7 +40,7 @@ def _setup_logging(logging_level: str) -> None:
     )
 
 
-@click.command()
+@click.group()
 @click.option(
     "--logging-level",
     default=os.getenv("LOGGING_LEVEL", "info"),
@@ -56,6 +56,73 @@ def _setup_logging(logging_level: str) -> None:
 def main(logging_level: str):
     """Entrypoint."""
     _setup_logging(logging_level)
+
+
+@main.command()
+@click.argument(
+    "csv_file",
+    type=click.Path(
+        exists=True,
+        file_okay=True,
+        dir_okay=False,
+        readable=True,
+        path_type=Path,
+    ),
+)
+@click.argument(
+    "ipynb_file",
+    type=click.Path(
+        exists=True,
+        file_okay=True,
+        dir_okay=False,
+        readable=True,
+        path_type=Path,
+    ),
+)
+@click.option(
+    "-c",
+    "--challenge-id",
+    default=1439,  # Allergen Chip Challenge
+    help="Trustii challenge id",
+    show_default=True,
+    type=int,
+)
+@click.option(
+    "-t",
+    "--token",
+    default="",
+    show_default=True,
+    type=str,
+)
+def submit(
+    csv_file: Path, ipynb_file: Path, challenge_id: int, token: str, *_, **__
+):
+    """Submits a run to trustii"""
+    import requests
+
+    if not token:
+        logging.error("No token provided")
+        sys.exit(1)
+
+    endpoint_url = f"https://api.trustii.io/api/ds/notebook/datasets/{challenge_id}/prediction"
+    with open(csv_file, "rb") as fp:
+        csv_data = fp.read()
+    with open(ipynb_file, "rb") as fp:
+        ipynb_data = fp.read()
+    headers = {"Trustii-Api-User-Token": token}
+    data = {
+        "csv_file": ("predictions.csv", csv_data),
+        "ipynb_file": ("notebook.ipynb", ipynb_data),
+    }
+    response = requests.post(
+        endpoint_url, headers=headers, files=data, timeout=100
+    )
+    if response.status_code == 200:
+        logging.success("Submitted: {}", response.text)
+    else:
+        logging.error(
+            "Submission failed: {} {}", response.status_code, response.text
+        )
 
 
 # pylint: disable=no-value-for-parameter
