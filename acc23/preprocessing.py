@@ -626,6 +626,7 @@ def impute_dataframe(df: pd.DataFrame) -> pd.DataFrame:
 
     TODO: list all of them
     """
+    logging.debug("Imputing dataframe")
     imputers = [
         (["Age"], SimpleImputer()),
         (["Gender"], SimpleImputer(strategy="most_frequent")),
@@ -645,9 +646,13 @@ def impute_dataframe(df: pd.DataFrame) -> pd.DataFrame:
                 f"{b - a} / {b} nan values ({(b - a) / b * 100} %)"
             )
     dummy_imputers = [(c, FunctionTransformer()) for c in non_impute_columns]
-    mapper = DataFrameMapper(imputers + dummy_imputers, df_out=True)
-    df = mapper.fit_transform(df)
-    return df
+    # There's some issues if we ask the mapper to return a dataframe
+    # (df_out=True): All allergen columns get merged :/ Instead we get an array
+    # and reconstruct the dataframe around it being careful with the order of
+    # the column names
+    mapper = DataFrameMapper(imputers + dummy_imputers)
+    x = mapper.fit_transform(df)
+    return pd.DataFrame(data=x, columns=impute_columns + non_impute_columns)
 
 
 def load_csv(path: Union[str, Path]) -> pd.DataFrame:
@@ -656,6 +661,7 @@ def load_csv(path: Union[str, Path]) -> pd.DataFrame:
     enforces adequate column types (see `get_dtypes`), and applies some
     preprocessing transforms (see `preprocess_dataframe`).
     """
+    logging.debug("Loading dataframe {}", path)
     dtypes = get_dtypes()
     df = pd.read_csv(path, dtype=dtypes)
     # Apparently typing 1 time isn't enough
@@ -707,6 +713,7 @@ def preprocess_dataframe(df: pd.DataFrame) -> pd.DataFrame:
 
     TODO: List all of them.
     """
+    logging.debug("Preprocessing dataframe")
     general_transforms = [
         (
             ["Chip_Type"],
@@ -732,6 +739,7 @@ def preprocess_dataframe(df: pd.DataFrame) -> pd.DataFrame:
             "Food_Type_0",
             MultiLabelSplitBinarizer(classes=CLASSES["Food_Type_0"]),
         ),
+        # In the spec but not in the csv files
         # ("Food_Type_2", MultiLabelSplitBinarizer()),
         (
             "Treatment_of_rhinitis",
