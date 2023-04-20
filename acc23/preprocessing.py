@@ -636,17 +636,18 @@ def impute_dataframe(df: pd.DataFrame) -> pd.DataFrame:
     for i in imputers:
         c: Union[str, List[str]] = i[0]
         impute_columns += c if isinstance(c, list) else [c]
-    for c in df.columns:
-        if c in impute_columns:
-            continue
+    non_impute_columns = [c for c in df.columns if c not in impute_columns]
+    for c in non_impute_columns:
         a, b = df[c].count(), len(df)
         if a != b:
             raise RuntimeError(
                 f"Columns '{c}' is marked for non-imputation but it has "
                 f"{b - a} / {b} nan values ({(b - a) / b * 100} %)"
             )
-    mapper = DataFrameMapper(imputers, df_out=True)
-    return mapper.fit_transform(df)
+    dummy_imputers = [(c, FunctionTransformer()) for c in non_impute_columns]
+    mapper = DataFrameMapper(imputers + dummy_imputers, df_out=True)
+    df = mapper.fit_transform(df)
+    return df
 
 
 def load_csv(path: Union[str, Path]) -> pd.DataFrame:
