@@ -1,9 +1,8 @@
 """Preprocessing stuff"""
 
 import re
-from math import nan
 from pathlib import Path
-from typing import Any, Iterable, Optional, Union
+from typing import Any, Iterable, List, Optional, Union
 
 import numpy as np
 import pandas as pd
@@ -11,6 +10,7 @@ import torch
 from loguru import logger as logging
 from PIL import Image
 from sklearn.base import TransformerMixin
+from sklearn.impute import KNNImputer, SimpleImputer
 from sklearn.preprocessing import (
     FunctionTransformer,
     MinMaxScaler,
@@ -339,6 +339,7 @@ ALLERGENS = [
     "Zea_m",
     "Zea_m_14",
 ]
+"""Allergen columns"""
 
 CLASSES = {
     "Chip_Type": ["ALEX", "ISAC_V1", "ISAC_V2"],
@@ -472,6 +473,7 @@ CLASSES = {
         "10",
     ],
     "Age_of_onsets": ["1", "2", "3", "4", "5", "6", "9"],
+    "Skin_Symptoms": ["0", "1", "9"],
     "General_cofactors": [
         "1",
         "2",
@@ -521,6 +523,7 @@ TARGETS = [
     "Type_of_Venom_Allergy_ATCD_Venom",
     "Type_of_Venom_Allergy_IGE_Venom",
 ]
+"""Target columns"""
 
 
 class MultiLabelSplitBinarizer(TransformerMixin):
@@ -583,7 +586,7 @@ def get_dtypes() -> dict:
         "Treatment_of_rhinitis": str,  # Comma-sep lst of codes
         "Treatment_of_athsma": str,  # Comma-sep lst of codes
         "Age_of_onsets": str,  # Comma-sep lst of age codes
-        "Skin_Symptoms": np.uint8,
+        "Skin_Symptoms": str,  # Will be categorized
         "General_cofactors": str,  # Comma-sep lst of codes
         "Treatment_of_atopic_dematitis": str,  # Comma-sep lst of treatment codes
     }
@@ -617,6 +620,35 @@ def bruteforce_test_dtypes(csv_file_path: Union[str, Path]):
             )
 
 
+def impute_dataframe(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Performs various imputation tasks on the dataframe.
+
+    TODO: list all of them
+    """
+    imputers = [
+        (["Age"], SimpleImputer()),
+        (["Gender"], SimpleImputer(strategy="most_frequent")),
+        (ALLERGENS, KNNImputer()),
+    ]
+    # Check that non-impute columns don't have nans
+    impute_columns: List[str] = []
+    for i in imputers:
+        c: Union[str, List[str]] = i[0]
+        impute_columns += c if isinstance(c, list) else [c]
+    for c in df.columns:
+        if c in impute_columns:
+            continue
+        a, b = df[c].count(), len(df)
+        if a != b:
+            raise RuntimeError(
+                f"Columns '{c}' is marked for non-imputation but it has "
+                f"{b - a} / {b} nan values ({(b - a) / b * 100} %)"
+            )
+    mapper = DataFrameMapper(imputers, df_out=True)
+    return mapper.fit_transform(df)
+
+
 def load_csv(path: Union[str, Path]) -> pd.DataFrame:
     """
     Opens a csv dataframe (presumable `data/train.csv` or `data/test.csv`),
@@ -625,9 +657,11 @@ def load_csv(path: Union[str, Path]) -> pd.DataFrame:
     """
     dtypes = get_dtypes()
     df = pd.read_csv(path, dtype=dtypes)
-    # Apparently 1 time isn"t enough
+    # Apparently typing 1 time isn't enough
     df = df.astype({c: t for c, t in dtypes.items() if c in df.columns})
-    return preprocess_dataframe(df)
+    df = preprocess_dataframe(df)
+    df = impute_dataframe(df)
+    return df
 
 
 def load_image(path: Union[str, Path]) -> torch.Tensor:
@@ -751,7 +785,7 @@ def preprocess_dataframe(df: pd.DataFrame) -> pd.DataFrame:
         ),
         (
             "Skin_Symptoms",
-            FunctionTransformer(map_replace, kw_args={"val": 9, "rep": nan}),
+            MultiLabelSplitBinarizer(classes=CLASSES["Skin_Symptoms"]),
         ),
         (
             "General_cofactors",
