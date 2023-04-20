@@ -11,7 +11,7 @@ import torch
 from torch.utils.data import DataLoader, Dataset
 from torchvision import transforms
 
-from .preprocessing import load_csv, load_image
+from .preprocessing import TARGETS, load_csv, load_image
 
 Transform_t = Callable[[torch.Tensor], torch.Tensor]
 
@@ -40,20 +40,28 @@ class ACCDataset(Dataset):
         self.csv_file_path = Path(csv_file_path)
         self.image_dir_path = Path(image_dir_path)
         self.data = load_csv(csv_file_path)
-        self.image_transform = image_transform or transforms.Resize((512, 512))
+        self.image_transform = image_transform or transforms.Resize(
+            (512, 512), antialias=True
+        )
 
     def __len__(self) -> int:
         return len(self.data)
 
-    def __getitem__(self, idx: int) -> Tuple[dict, torch.Tensor]:
+    def __getitem__(self, idx: int) -> Tuple[dict, dict, torch.Tensor]:
         row = self.data.loc[idx]
-        p = row["Chip_Image_Name"]
+        p, xy = row["Chip_Image_Name"], row.drop(["Chip_Image_Name"])
+        if all(map(lambda c: c in xy, TARGETS)):
+            # row has all target columns, i.e. this is probably the training
+            # dataset
+            x, y = dict(xy.drop(TARGETS)), dict(xy[TARGETS])
+        else:
+            x, y = dict(xy), {}
         try:
             img = load_image(self.image_dir_path / p)
         except:
-            img = torch.ones((3, 8, 8))
+            img = torch.zeros((3, 8, 8))
         img = self.image_transform(img)
-        return dict(row), img
+        return x, y, img
 
     def test_train_split_dl(
         self,
@@ -65,14 +73,14 @@ class ACCDataset(Dataset):
         Performs a train/test split using
         [`torch.utils.data.random_split`](https://pytorch.org/docs/stable/data.html#torch.utils.data.random_split)
         with the train dataset being roughly `ratio %` of the size of the
-        dataset. Returns two `DataLoader`s. The dataloader kwargs default to
-        `{"batch_size": 32, "pin_memory": True}`.
+        dataset. Returns two `DataLoader`s.
         """
         a = int(len(self) * ratio)
         split_kwargs = split_kwargs or {}
         dataloader_kwargs = dataloader_kwargs or {
             "batch_size": 32,
             "pin_memory": True,
+            "num_workers": 8,
         }
         test, train = torch.utils.data.random_split(
             self, lengths=[a, len(self) - a], **split_kwargs

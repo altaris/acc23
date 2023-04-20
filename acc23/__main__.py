@@ -104,7 +104,10 @@ def submit(
         logging.error("No token provided")
         sys.exit(1)
 
-    endpoint_url = f"https://api.trustii.io/api/ds/notebook/datasets/{challenge_id}/prediction"
+    endpoint_url = (
+        f"https://api.trustii.io/api/ds/notebook/datasets/{challenge_id}"
+        "/prediction"
+    )
     with open(csv_file, "rb") as fp:
         csv_data = fp.read()
     with open(ipynb_file, "rb") as fp:
