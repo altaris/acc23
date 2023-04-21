@@ -71,7 +71,7 @@ disable=
       too-many-instance-attributes,
       broad-except,
       bare-except,
-      ; duplicate-code,
+      duplicate-code,
       ; global-statement,
       ; import-outside-toplevel,
       fixme,
