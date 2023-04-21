@@ -166,10 +166,13 @@ cython_debug/
 .idea
 
 # VSCode
-*.code-workspace
 .vscode/
+*.code-workspace
+
+# Other stuff
+*.ipynb
+*.tar.gz
 data/
 old/
 out/
-*.ipynb
 secret.env
