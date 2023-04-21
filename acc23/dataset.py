@@ -9,9 +9,8 @@ from typing import Callable, Optional, Tuple, Union
 import pandas as pd
 import torch
 from torch.utils.data import DataLoader, Dataset
-from torchvision import transforms
 
-from acc23.constants import IMAGE_RESIZE_TO
+from acc23.constants import IMAGE_RESIZE_TO, N_CHANNELS
 
 from .preprocessing import TARGETS, load_csv, load_image
 
@@ -23,7 +22,7 @@ class ACCDataset(Dataset):
     Simple random-access dataset that loads (unlabeled) images from a given
     directory using
     [`torchvision.io.read_image`](https://pytorch.org/vision/master/generated/torchvision.io.read_image.html).
-    The images have shape `(C, H, W)`, values from `0` to `1`, and dtype
+    The images have shape `(C, W, H)`, values from `0` to `1`, and dtype
     `float32`.
     """
 
@@ -39,15 +38,19 @@ class ACCDataset(Dataset):
         image_transform: Optional[Transform_t] = None,
     ):
         """
-        The transform defaults to a `IMAGE_RESIZE_TO x IMAGE_RESIZE_TO` resize,
-        see `constants.IMAGE_RESIZE_TO`.
+        Args:
+            csv_file_path (Union[str, Path]): e.g. `"data/train.csv"`
+            image_dir_path (Union[str, Path]): e.g. `"data/images"`
+            image_transform (Optional[Transform_t]): [torchvision
+                transforms](https://pytorch.org/vision/stable/transforms.html)
+                to apply to the images. Note that images are already resized to
+                `constants.IMAGE_RESIZE_TO` and rescales to $[0, 1]$ before
+                `image_transform` can touch them.
         """
         self.csv_file_path = Path(csv_file_path)
         self.image_dir_path = Path(image_dir_path)
         self.data = load_csv(csv_file_path)
-        self.image_transform = image_transform or transforms.Resize(
-            (IMAGE_RESIZE_TO, IMAGE_RESIZE_TO), antialias=True
-        )
+        self.image_transform = image_transform or (lambda x: x)
 
     def __len__(self) -> int:
         return len(self.data)
@@ -64,7 +67,7 @@ class ACCDataset(Dataset):
         try:
             img = load_image(self.image_dir_path / p)
         except:
-            img = torch.zeros((3, 8, 8))
+            img = torch.zeros((N_CHANNELS, IMAGE_RESIZE_TO, IMAGE_RESIZE_TO))
         img = self.image_transform(img)
         return x, y, img
 
@@ -78,7 +81,14 @@ class ACCDataset(Dataset):
         Performs a train/test split using
         [`torch.utils.data.random_split`](https://pytorch.org/docs/stable/data.html#torch.utils.data.random_split)
         with the train dataset being roughly `ratio %` of the size of the
-        dataset. Returns two `DataLoader`s.
+        dataset. Returns two `DataLoader`s. The default dataloader parameters
+        are
+
+            {
+                "batch_size": 32,
+                "pin_memory": True,
+                "num_workers": 8,
+            }
         """
         a = int(len(self) * ratio)
         split_kwargs = split_kwargs or {}

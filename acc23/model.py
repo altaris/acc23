@@ -1,4 +1,4 @@
-"""First attempt at a model"""
+"""ACC23 main multi-classification model"""
 __docformat__ = "google"
 
 from typing import Dict, List, Optional, Tuple
@@ -13,18 +13,25 @@ from sklearn.metrics import (
     recall_score,
 )
 from torch import nn
-
-from .constants import IMAGE_RESIZE_TO, N_FEATURES, N_TARGETS
+from transformers.models.resnet.modeling_resnet import ResNetConvLayer
+from .constants import IMAGE_RESIZE_TO, N_CHANNELS, N_FEATURES, N_TARGETS
 
 
 def basic_encoder(
     blocks_channels: List[int],
     input_size: int = IMAGE_RESIZE_TO,
-    input_channels: int = 3,
+    input_channels: int = N_CHANNELS,
 ) -> Tuple[nn.Module, int]:
     """
     Basic image encoder that is just a succession of (non skipped) downsampling
-    blocks, followed by a final flatten layer.
+    blocks, followed by a final flatten layer. A block is made of
+    1. a convolution layer which cuts the inputs' height and width by half,
+    2. a batch normalization layer, except for the first block,
+    3. a sigmoid activation.
+    In particular, the output images' size will be `input_size / (2 **
+    len(blocks_channels))`, and the output vector dimension will be
+
+        blocks_channels[-1] * (input_size / (2 ** len(blocks_channels))) ** 2
 
     Args:
         blocks_channels (List[int]): Number of output channels of each
@@ -37,15 +44,10 @@ def basic_encoder(
     Return:
         The encoder and the (flat) dimension of the output vector.
     """
+    c = [input_channels] + blocks_channels
     module = nn.Sequential(
-        nn.Conv2d(input_channels, blocks_channels[0], 4, 2, 1),
-        nn.LeakyReLU(0.2),
+        *[ResNetConvLayer(c[i - 1], c[i], 5, 2) for i in range(1, len(c))]
     )
-    for i in range(1, len(blocks_channels)):
-        a, b = blocks_channels[i - 1], blocks_channels[i]
-        module.append(nn.Conv2d(a, b, 4, 2, 1))
-        module.append(nn.BatchNorm2d(b))
-        module.append(nn.LeakyReLU(0.2))
     module.append(nn.Flatten())
     # Height (eq. width) of the encoded image before flatten
     es = int(input_size / (2 ** len(blocks_channels)))
@@ -78,45 +80,45 @@ def linear_chain(n_inputs: int, n_neurons: List[int]) -> nn.Module:
     """
     A sequence of linear layers with sigmoid activation (including at the end).
     """
-    module = nn.Sequential(
-        nn.Linear(n_inputs, n_neurons[0]),
-        nn.Sigmoid(),
-    )
-    for i in range(1, len(n_neurons)):
-        a, b = n_neurons[i - 1], n_neurons[i]
-        module.append(nn.Linear(a, b))
+    n, module = [n_inputs] + n_neurons, nn.Sequential()
+    for i in range(1, len(n)):
+        module.append(nn.Linear(n[i - 1], n[i]))
         module.append(nn.Sigmoid())
     return module
 
 
 class ACCModel(pl.LightningModule):
-    """A basic model :]"""
+    """ACC23 main multi-classification model"""
 
     _module_a: nn.Module  # Input-dense part
     _module_b: nn.Module  # Input-conv part
+    _mah: nn.Module  # Multi-head attention
     _module_c: nn.Module  # Output part
 
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
         self.save_hyperparameters()
-        self._module_a = linear_chain(N_FEATURES, [512, 256])
         self._module_b, encoded_dim = basic_encoder(
             [
-                8,  # IMAGE_RESIZE_TO = 512 -> 256
-                8,  # -> 128
-                16,  # -> 64
+                8,  # IMAGE_RESIZE_TO = 128 -> 64
                 16,  # -> 32
                 32,  # -> 16
                 32,  # -> 8
                 64,  # -> 4
             ],
-            input_size=IMAGE_RESIZE_TO,
-            input_channels=3,
         )
-        self._module_c = linear_chain(256 + encoded_dim, [256, 64, N_TARGETS])
+        self._module_a = linear_chain(N_FEATURES, [512, encoded_dim])
+        self._mah = nn.MultiheadAttention(
+            embed_dim=2 * encoded_dim,
+            num_heads=64,
+            batch_first=True,
+        )
+        self._module_c = linear_chain(2 * encoded_dim, [256, 64, N_TARGETS])
         self.example_input_array = {
             "x": {str(i): torch.zeros((1, 1)) for i in range(N_FEATURES)},
-            "img": torch.zeros((1, 3, IMAGE_RESIZE_TO, IMAGE_RESIZE_TO)),
+            "img": torch.zeros(
+                (1, N_CHANNELS, IMAGE_RESIZE_TO, IMAGE_RESIZE_TO)
+            ),
         }
         self.forward(**self.example_input_array)
 
@@ -153,19 +155,19 @@ class ACCModel(pl.LightningModule):
         prec = precision_score(
             y_true_np,
             y_pred_np,
-            average="sample",
+            average="samples",
             zero_division=0,
         )
         rec = recall_score(
             y_true_np,
             y_pred_np,
-            average="sample",
+            average="samples",
             zero_division=0,
         )
         f1 = f1_score(
             y_true_np,
             y_pred_np,
-            average="sample",
+            average="samples",
             zero_division=0,
         )
         if stage is not None:
@@ -183,12 +185,14 @@ class ACCModel(pl.LightningModule):
         return loss, float(acc), float(ham), float(prec), float(rec), float(f1)
 
     def forward(self, x: Dict[str, torch.Tensor], img: torch.Tensor, *_, **__):
+        # One operation per line for easier troubleshooting
         x = concat_tensor_dict(x).float().to(self.device)  # type: ignore
         img = img.to(self.device)  # type: ignore
         a = self._module_a(x)
         b = self._module_b(img)
         ab = torch.concatenate([a, b], dim=-1)
-        return self._module_c(ab)
+        c, _ = self._mah(ab, ab, ab, need_weights=False)
+        return self._module_c(c)
 
     def training_step(self, batch, *_, **__):
         x, y, img = batch

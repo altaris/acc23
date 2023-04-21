@@ -18,6 +18,9 @@ from sklearn.preprocessing import (
 )
 from sklearn_pandas import DataFrameMapper
 from sklearn_pandas.pipeline import make_transformer_pipeline
+from torchvision.transforms.functional import resize
+
+from acc23.constants import IMAGE_RESIZE_TO, N_CHANNELS
 
 ALLERGENS = [
     "Act_d_1",
@@ -674,19 +677,27 @@ def load_csv(path: Union[str, Path]) -> pd.DataFrame:
 def load_image(path: Union[str, Path]) -> torch.Tensor:
     """
     Convenience function to load an PNG or BMP image. The returned image tensor
-    has shape `(C, H, W)`, values from `0` to `1`, and dtype `float32`.
+    has shape `(C, H, W)` (the torch/torchvision convention), values from `0`
+    to `1`, and dtype `float32`. Here, `C = constants.N_CHANNELS`, and `H = W =
+    constants.IMAGE_RESIZE_TO`. In particular, the image is transposed since
+    Pillow uses a `(W, H, C)` convention.
     """
-    path = Path(path)
-    img = torch.Tensor(np.asarray(Image.open(path)))  # img is channel-last
-    if img.ndim == 2:
-        img = torch.concat([img.unsqueeze(-1)] * 3, dim=-1)  # Add channel axis
-    elif img.shape[-1] >= 4:
-        img = img[:, :, :3]  # Remove alpha channel
-    img = img.permute(2, 0, 1)  # img is now channel-first
-    img = img.to(torch.float32)
-    img -= img.min()
-    img /= img.max()
-    return img
+    # See https://pillow.readthedocs.io/en/latest/handbook/concepts.html#concept-modes
+    fmts = {1: "L", 3: "RGB", 4: "RGBA"}
+    if N_CHANNELS not in fmts:
+        raise RuntimeError(
+            "Invalid constant acc23.constants.N_CHANNELS. Supported values "
+            "are 1 (to preprocess raw images into greyscale), 3 (RGB), and "
+            "4 (RGBA)"
+        )
+    img = Image.open(Path(path)).convert(fmts[N_CHANNELS])
+    arr = torch.Tensor(np.asarray(img))  # (W, H, C)
+    arr = arr.permute(2, 1, 0)  # (C, H, W)
+    arr = arr.to(torch.float32)
+    arr -= arr.min()
+    arr /= arr.max()
+    arr = resize(arr, (IMAGE_RESIZE_TO, IMAGE_RESIZE_TO), antialias=True)
+    return arr
 
 
 def map_replace(x: np.ndarray, val: Any, rep: Any) -> np.ndarray:
