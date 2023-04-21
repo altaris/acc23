@@ -149,9 +149,24 @@ class ACCModel(pl.LightningModule):
         loss = nn.functional.binary_cross_entropy(y_pred, y_true)
         acc = accuracy_score(y_true_np, y_pred_np)
         ham = hamming_loss(y_true_np, y_pred_np)
-        prec = precision_score(y_true_np, y_pred_np, average="micro")
-        rec = recall_score(y_true_np, y_pred_np, average="micro")
-        f1 = f1_score(y_true_np, y_pred_np, average="micro")
+        prec = precision_score(
+            y_true_np,
+            y_pred_np,
+            average="sample",
+            zero_division=0,
+        )
+        rec = recall_score(
+            y_true_np,
+            y_pred_np,
+            average="sample",
+            zero_division=0,
+        )
+        f1 = f1_score(
+            y_true_np,
+            y_pred_np,
+            average="sample",
+            zero_division=0,
+        )
         if stage is not None:
             self.log_dict(
                 {
