@@ -1,7 +1,7 @@
 """ACC23 main multi-classification model"""
 __docformat__ = "google"
 
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple, Union
 
 import pytorch_lightning as pl
 import torch
@@ -114,13 +114,11 @@ class ACCModel(pl.LightningModule):
             batch_first=True,
         )
         self._module_c = linear_chain(2 * encoded_dim, [256, 64, N_TARGETS])
-        self.example_input_array = {
-            "x": {str(i): torch.zeros((1, 1)) for i in range(N_FEATURES)},
-            "img": torch.zeros(
-                (1, N_CHANNELS, IMAGE_RESIZE_TO, IMAGE_RESIZE_TO)
-            ),
-        }
-        self.forward(**self.example_input_array)
+        self.example_input_array = (
+            torch.zeros((1, N_FEATURES)),
+            torch.zeros((1, N_CHANNELS, IMAGE_RESIZE_TO, IMAGE_RESIZE_TO)),
+        )
+        self.forward(*self.example_input_array)
 
     def configure_optimizers(self):
         return torch.optim.Adam(self.parameters())
@@ -184,9 +182,17 @@ class ACCModel(pl.LightningModule):
             )
         return loss, float(acc), float(ham), float(prec), float(rec), float(f1)
 
-    def forward(self, x: Dict[str, torch.Tensor], img: torch.Tensor, *_, **__):
+    def forward(
+        self,
+        x: Union[torch.Tensor, Dict[str, torch.Tensor]],
+        img: torch.Tensor,
+        *_,
+        **__,
+    ):
         # One operation per line for easier troubleshooting
-        x = concat_tensor_dict(x).float().to(self.device)  # type: ignore
+        if isinstance(x, dict):
+            x = concat_tensor_dict(x)
+        x = x.float().to(self.device)  # type: ignore
         img = img.to(self.device)  # type: ignore
         a = self._module_a(x)
         b = self._module_b(img)
