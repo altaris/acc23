@@ -14,10 +14,12 @@ from sklearn.metrics import (
 )
 from torch import nn
 
+from .constants import IMAGE_RESIZE_TO, N_FEATURES, N_TARGETS
+
 
 def basic_encoder(
     blocks_channels: List[int],
-    input_size: int = 512,
+    input_size: int = IMAGE_RESIZE_TO,
     input_channels: int = 3,
 ) -> Tuple[nn.Module, int]:
     """
@@ -97,11 +99,10 @@ class ACCModel(pl.LightningModule):
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
         self.save_hyperparameters()
-        # 474 features, a 512x512 image, 29 targets
-        self._module_a = linear_chain(474, [512, 256])
+        self._module_a = linear_chain(N_FEATURES, [512, 256])
         self._module_b, encoded_dim = basic_encoder(
             [
-                8,  # 512 -> 256
+                8,  # IMAGE_RESIZE_TO = 512 -> 256
                 8,  # -> 128
                 16,  # -> 64
                 16,  # -> 32
@@ -109,13 +110,13 @@ class ACCModel(pl.LightningModule):
                 32,  # -> 8
                 64,  # -> 4
             ],
-            input_size=512,
+            input_size=IMAGE_RESIZE_TO,
             input_channels=3,
         )
-        self._module_c = linear_chain(256 + encoded_dim, [256, 64, 29])
+        self._module_c = linear_chain(256 + encoded_dim, [256, 64, N_TARGETS])
         self.example_input_array = {
-            "x": {str(i): torch.zeros((1, 1)) for i in range(474)},
-            "img": torch.zeros((1, 3, 512, 512)),
+            "x": {str(i): torch.zeros((1, 1)) for i in range(N_FEATURES)},
+            "img": torch.zeros((1, 3, IMAGE_RESIZE_TO, IMAGE_RESIZE_TO)),
         }
         self.forward(**self.example_input_array)
 

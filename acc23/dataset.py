@@ -11,6 +11,8 @@ import torch
 from torch.utils.data import DataLoader, Dataset
 from torchvision import transforms
 
+from acc23.constants import IMAGE_RESIZE_TO
+
 from .preprocessing import TARGETS, load_csv, load_image
 
 Transform_t = Callable[[torch.Tensor], torch.Tensor]
@@ -36,12 +38,15 @@ class ACCDataset(Dataset):
         image_dir_path: Union[str, Path],
         image_transform: Optional[Transform_t] = None,
     ):
-        """The transform defaults to a 512x512 resize."""
+        """
+        The transform defaults to a `IMAGE_RESIZE_TO x IMAGE_RESIZE_TO` resize,
+        see `constants.IMAGE_RESIZE_TO`.
+        """
         self.csv_file_path = Path(csv_file_path)
         self.image_dir_path = Path(image_dir_path)
         self.data = load_csv(csv_file_path)
         self.image_transform = image_transform or transforms.Resize(
-            (512, 512), antialias=True
+            (IMAGE_RESIZE_TO, IMAGE_RESIZE_TO), antialias=True
         )
 
     def __len__(self) -> int:
