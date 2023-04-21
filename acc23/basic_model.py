@@ -5,6 +5,13 @@ from typing import Dict, List, Optional, Tuple
 
 import pytorch_lightning as pl
 import torch
+from sklearn.metrics import (
+    accuracy_score,
+    f1_score,
+    hamming_loss,
+    precision_score,
+    recall_score,
+)
 from torch import nn
 
 
@@ -112,22 +119,52 @@ class ACCModel(pl.LightningModule):
         }
         self.forward(**self.example_input_array)
 
-    def _evaluate(
+    def configure_optimizers(self):
+        return torch.optim.Adam(self.parameters())
+
+    def evaluate(
         self,
         x: Dict[str, torch.Tensor],
         y: Dict[str, torch.Tensor],
         img: torch.Tensor,
         stage: Optional[str] = None,
-    ) -> torch.Tensor:
-        _y = concat_tensor_dict(y).float().to(self.device)  # type: ignore
-        criterion = nn.functional.binary_cross_entropy
-        bce_loss = criterion(self(x, img), _y)
-        if stage is not None:
-            self.log(f"{stage}/loss", bce_loss, sync_dist=True)
-        return bce_loss
+    ) -> Tuple[torch.Tensor, float, float, float, float, float]:
+        """
+        Computes and returns various scores and losses. In order:
+        1. Binary cross-entropy (which is the loss used during training),
+        2. Accuracy score,
+        3. Hamming loss,
+        4. Precision score,
+        5. Recall score,
+        6. F1 score.
 
-    def configure_optimizers(self):
-        return torch.optim.Adam(self.parameters())
+        Furthermore, if `stage` is given, these values are also logged
+         to tensorboard under `<stage>/loss`, `<stage>/acc`, `<stage>/ham`
+         (lol), `<stage>/prec`, `<stage>/rec`, and `<stage>/f1` respectively.
+        """
+        y_true = concat_tensor_dict(y).float().to(self.device)  # type: ignore
+        y_pred = self(x, img)
+        y_true_np = y_true.cpu().detach().numpy()
+        y_pred_np = y_pred.cpu().detach().numpy() > 0.5
+        loss = nn.functional.binary_cross_entropy(y_pred, y_true)
+        acc = accuracy_score(y_true_np, y_pred_np)
+        ham = hamming_loss(y_true_np, y_pred_np)
+        prec = precision_score(y_true_np, y_pred_np, average="micro")
+        rec = recall_score(y_true_np, y_pred_np, average="micro")
+        f1 = f1_score(y_true_np, y_pred_np, average="micro")
+        if stage is not None:
+            self.log_dict(
+                {
+                    f"{stage}/loss": loss,
+                    f"{stage}/acc": acc,
+                    f"{stage}/ham": ham,
+                    f"{stage}/prec": prec,
+                    f"{stage}/rec": rec,
+                    f"{stage}/f1": f1,
+                },
+                sync_dist=True,
+            )
+        return loss, float(acc), float(ham), float(prec), float(rec), float(f1)
 
     def forward(self, x: Dict[str, torch.Tensor], img: torch.Tensor, *_, **__):
         x = concat_tensor_dict(x).float().to(self.device)  # type: ignore
@@ -139,8 +176,8 @@ class ACCModel(pl.LightningModule):
 
     def training_step(self, batch, *_, **__):
         x, y, img = batch
-        return self._evaluate(x, y, img, "train")
+        return self.evaluate(x, y, img, "train")[0]
 
     def validation_step(self, batch, *_, **__):
         x, y, img = batch
-        return self._evaluate(x, y, img, "val")
+        return self.evaluate(x, y, img, "val")[0]
