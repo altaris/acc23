@@ -92,28 +92,31 @@ class ACCModel(pl.LightningModule):
 
     _module_a: nn.Module  # Input-dense part
     _module_b: nn.Module  # Input-conv part
-    _mah: nn.Module  # Multi-head attention
-    _module_c: nn.Module  # Output part
+    _module_c: nn.Module  # Transformer
+    _module_d: nn.Module  # Output part
 
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
         self.save_hyperparameters()
         self._module_b, encoded_dim = basic_encoder(
             [
-                8,  # IMAGE_RESIZE_TO = 128 -> 64
-                16,  # -> 32
-                32,  # -> 16
+                4,  # IMAGE_RESIZE_TO = 128 -> 64
+                8,  # -> 32
+                16,  # -> 16
                 32,  # -> 8
                 64,  # -> 4
+                128,  # -> 2
             ],
         )
         self._module_a = linear_chain(N_FEATURES, [512, encoded_dim])
-        self._mah = nn.MultiheadAttention(
-            embed_dim=2 * encoded_dim,
-            num_heads=64,
+        self._module_c = nn.Transformer(
+            d_model=encoded_dim,
+            nhead=8,
             batch_first=True,
+            num_encoder_layers=1,
+            num_decoder_layers=4,
         )
-        self._module_c = linear_chain(2 * encoded_dim, [256, 64, N_TARGETS])
+        self._module_d = linear_chain(encoded_dim, [256, 64, N_TARGETS])
         self.example_input_array = (
             torch.zeros((1, N_FEATURES)),
             torch.zeros((1, N_CHANNELS, IMAGE_RESIZE_TO, IMAGE_RESIZE_TO)),
@@ -196,9 +199,9 @@ class ACCModel(pl.LightningModule):
         img = img.to(self.device)  # type: ignore
         a = self._module_a(x)
         b = self._module_b(img)
-        ab = torch.concatenate([a, b], dim=-1)
-        c, _ = self._mah(ab, ab, ab, need_weights=False)
-        return self._module_c(c)
+        c = self._module_c(b, a)
+        d = self._module_d(c)
+        return d
 
     def training_step(self, batch, *_, **__):
         x, y, img = batch
