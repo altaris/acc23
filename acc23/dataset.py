@@ -19,11 +19,8 @@ Transform_t = Callable[[torch.Tensor], torch.Tensor]
 
 class ACCDataset(Dataset):
     """
-    Simple random-access dataset that loads (unlabeled) images from a given
-    directory using
-    [`torchvision.io.read_image`](https://pytorch.org/vision/master/generated/torchvision.io.read_image.html).
-    The images have shape `(C, W, H)`, values from `0` to `1`, and dtype
-    `float32`.
+    Random-access dataset that reads from a CSV file and a image directory,
+    both assumed to conform to the ACC23 specs.
     """
 
     csv_file_path: Path

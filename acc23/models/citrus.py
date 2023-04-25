@@ -24,9 +24,8 @@ class Citrus(BaseMultilabelClassifier):
 
     _module_a: nn.Module  # Input-dense part
     _module_b: nn.Module  # Input-conv part
-    _module_c: nn.Module  # Merge part
-    _module_d: nn.Module  # Attention part
-    _module_e: nn.Module  # Output part
+    _module_c: nn.Module  # Attention part (transformer encoder)
+    _module_d: nn.Module  # Output part
 
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
@@ -38,15 +37,27 @@ class Citrus(BaseMultilabelClassifier):
                 16,  # -> 16
                 32,  # -> 8
                 64,  # -> 4
-                128,  # -> 2
+                64,  # -> 2
             ],
         )
-        self._module_a = linear_chain(N_FEATURES, [512, encoded_dim])
-        self._module_c = linear_chain(2 * encoded_dim, [256, 256])
-        self._module_d = nn.MultiheadAttention(
-            embed_dim=256, num_heads=16, batch_first=True
+        self._module_a = linear_chain(N_FEATURES, [encoded_dim])
+        self._module_c = nn.TransformerEncoder(
+            nn.TransformerEncoderLayer(
+                d_model=2 * encoded_dim,
+                nhead=8,
+                dim_feedforward=4 * encoded_dim,
+                batch_first=True,
+            ),
+            num_layers=2,
         )
-        self._module_e = linear_chain(256, [128, 64, N_TARGETS])
+        self._module_d = nn.Sequential(
+            nn.Linear(2 * encoded_dim, encoded_dim),
+            nn.ReLU(),
+            nn.Linear(encoded_dim, 128),
+            nn.ReLU(),
+            nn.Linear(128, N_TARGETS),
+            nn.Sigmoid(),
+        )
         self.example_input_array = (
             torch.zeros((1, N_FEATURES)),
             torch.zeros((1, N_CHANNELS, IMAGE_RESIZE_TO, IMAGE_RESIZE_TO)),
@@ -68,6 +79,6 @@ class Citrus(BaseMultilabelClassifier):
         a = self._module_a(x)
         b = self._module_b(img)
         ab = torch.concatenate([a, b], dim=-1)
-        c, _ = self._module_c(ab, ab, ab, need_weights=False)
+        c = self._module_c(ab)
         d = self._module_d(c)
         return d

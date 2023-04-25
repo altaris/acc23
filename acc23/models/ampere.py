@@ -46,7 +46,6 @@ class Ampere(BaseMultilabelClassifier):
             ],
         )
         self._module_c = linear_chain(256 + encoded_dim, [256, 64, N_TARGETS])
-
         self.example_input_array = (
             torch.zeros((1, N_FEATURES)),
             torch.zeros((1, N_CHANNELS, IMAGE_RESIZE_TO, IMAGE_RESIZE_TO)),

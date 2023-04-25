@@ -3,7 +3,7 @@
 
 from loguru import logger as logging
 
-from acc23.models import Ampere as Model
+from acc23.models import Citrus as Model
 from acc23.dataset import ACCDataset
 from acc23.utils import train_model
 

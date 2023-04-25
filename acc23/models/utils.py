@@ -7,6 +7,7 @@ import pytorch_lightning as pl
 import torch
 from torch import Tensor, nn
 from transformers.models.resnet.modeling_resnet import ResNetConvLayer
+from transformers.activations import get_activation
 from sklearn.metrics import (
     accuracy_score,
     f1_score,
@@ -96,7 +97,8 @@ def basic_encoder(
     blocks_channels: List[int],
     input_size: int = IMAGE_RESIZE_TO,
     input_channels: int = N_CHANNELS,
-) -> Tuple[nn.Module, int]:
+    activation: str = "relu",
+) -> Tuple[nn.Sequential, int]:
     """
     Basic image encoder that is just a succession of (non skipped) downsampling
     blocks, followed by a final flatten layer. A block is made of
@@ -119,10 +121,18 @@ def basic_encoder(
     Return:
         The encoder and the (flat) dimension of the output vector.
     """
-    c = [input_channels] + blocks_channels
+    module, c = nn.Sequential(), [input_channels] + blocks_channels
     module = nn.Sequential(
-        *[ResNetConvLayer(c[i - 1], c[i], 5, 2) for i in range(1, len(c))]
+        *[
+            ResNetConvLayer(c[i - 1], c[i], 5, 2, activation)
+            for i in range(1, len(c))
+        ]
     )
+    # for i in range(1, len(c)):
+    #     module.append(nn.Conv2d(c[i - 1], c[i], 4, 2, 1))
+    #     if i > 1:
+    #         module.append(nn.BatchNorm2d(c[i]))
+    #     module.append(get_activation(activation))
     module.append(nn.Flatten())
     # Height (eq. width) of the encoded image before flatten
     es = int(input_size / (2 ** len(blocks_channels)))
@@ -151,12 +161,14 @@ def concat_tensor_dict(d: Dict[str, Tensor]) -> Tensor:
     return torch.concatenate(list(map(_maybe_unsqueeze, d.values())), dim=-1)
 
 
-def linear_chain(n_inputs: int, n_neurons: List[int]) -> nn.Module:
+def linear_chain(
+    n_inputs: int, n_neurons: List[int], activation: str = "sigmoid"
+) -> nn.Sequential:
     """
     A sequence of linear layers with sigmoid activation (including at the end).
     """
     n, module = [n_inputs] + n_neurons, nn.Sequential()
     for i in range(1, len(n)):
         module.append(nn.Linear(n[i - 1], n[i]))
-        module.append(nn.Sigmoid())
+        module.append(get_activation(activation))
     return module
