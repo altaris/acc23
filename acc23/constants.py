@@ -2,7 +2,7 @@
 __docformat__ = "google"
 
 
-IMAGE_RESIZE_TO = 128
+IMAGE_RESIZE_TO = 512
 """
 By default, images will be resized to `IMAGE_RESIZE_TO x IMAGE_RESIZE_TO`. See
 also `ACCDataset.__getitem__` and

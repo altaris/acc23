@@ -1,20 +1,17 @@
 # pylint: disable=missing-function-docstring
-"""Script to train acc23's current model implementation"""
+"""Script to train acc23's autoencoder"""
 
 from glob import glob
 from pathlib import Path
 from typing import Callable, List, Optional, Tuple, Union
 
-import pandas as pd
 import torch
 from loguru import logger as logging
 from torch.utils.data import DataLoader, Dataset
-import torchmetrics
 
-from acc23.constants import IMAGE_RESIZE_TO, N_CHANNELS
 from acc23.models import Autoencoder
 from acc23.utils import train_model
-from acc23.preprocessing import TARGETS, load_csv, load_image
+from acc23.preprocessing import load_image
 
 Transform_t = Callable[[torch.Tensor], torch.Tensor]
 
@@ -112,12 +109,21 @@ def main():
     train, val = ds.test_train_split_dl()
     model = Autoencoder(
         out_channels=[
-            8,  # IMAGE_RESIZE_TO = 128 -> 64
-            16,  # -> 32
+            16,   # IMAGE_RESIZE_TO = 512 -> 256
+            16,   # -> 128
+            16,   # -> 64
+            32,  # -> 32
             32,  # -> 16
             64,  # -> 8
             64,  # -> 4
         ],
+        # out_channels=[
+        #     8,  # IMAGE_RESIZE_TO = 128 -> 64
+        #     16,  # -> 32
+        #     32,  # -> 16
+        #     64,  # -> 8
+        #     64,  # -> 4
+        # ],
     )
     name = model.__class__.__name__.lower()
     train_model(model, train, val, root_dir="out", name=name)

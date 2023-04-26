@@ -15,7 +15,7 @@ def main():
     # model = Model()
     model = Model(
         last_checkpoint_path(
-            Path("out/tb_logs/autoencoder/version_1/checkpoints")
+            Path("out/tb_logs/autoencoder/version_2/checkpoints")
         )
     )
     name = model.__class__.__name__.lower()

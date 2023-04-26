@@ -77,13 +77,14 @@ class Autoencoder(pl.LightningModule):
         self._latent_image_shape = (a, b, b)
 
         self._decoder_a = nn.Sequential(
-            nn.Linear(latent_space_dim, latent_image_dim), nn.ReLU()
+            nn.Linear(latent_space_dim, latent_image_dim),
+            nn.ReLU(),
         )
         c = list(reversed([input_shape[0], *out_channels]))
         self._decoder_b = nn.Sequential(
             *[
                 DecoderStage(
-                    c[i - 1], c[i], "sigmoid" if i == len(c) - 1 else "relu"
+                    c[i - 1], c[i], "sigmoid" if i == len(c) - 1 else "gelu"
                 )
                 for i in range(1, len(c))
             ]
