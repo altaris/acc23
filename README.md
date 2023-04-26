@@ -10,6 +10,22 @@
 . ./secret.env && python3 -m acc23 submit -t "$TOKEN" out.csv dummy.ipynb
 ```
 
+# Troubleshooting
+
+## 2023-04-26 Image corruption
+
+`data/images/CY60527_4_190006236104_2022_12_22_12_15_22.bmp` is corrupted? PIL
+raises an `OSError` when loading...
+`data/images/CY60527_4_190006236104_2022_12_22_12_11_20.bmp` appears similar,
+so i just
+
+```sh
+cp data/images/CY60527_4_190006236104_2022_12_22_12_15_22.bmp data/images/CY60527_4_190006236104_2022_12_22_12_11_20.bmp
+```
+
+and called it a day
+
+
 # Contributing
 
 ## Dependencies
