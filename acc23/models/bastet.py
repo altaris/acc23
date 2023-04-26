@@ -3,7 +3,7 @@ ACC23 main multi-classification model: prototype "Bastet". The _merge branch_
 """
 __docformat__ = "google"
 
-from typing import Dict, Union
+from typing import Any, Dict, Union
 
 import torch
 from torch import Tensor, nn
@@ -26,7 +26,7 @@ class Bastet(BaseMultilabelClassifier):
     _module_c: nn.Module  # Merge branch: transformer
     _module_d: nn.Module  # Merge branch: output
 
-    def __init__(self, *args, **kwargs) -> None:
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
         self.save_hyperparameters()
         self._module_b, encoded_dim = basic_encoder(

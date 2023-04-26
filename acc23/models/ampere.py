@@ -10,7 +10,7 @@ output. This is called the _merge branch_.
 """
 __docformat__ = "google"
 
-from typing import Dict, Union
+from typing import Any, Dict, Union
 
 import torch
 from torch import Tensor, nn
@@ -32,7 +32,7 @@ class Ampere(BaseMultilabelClassifier):
     _module_b: nn.Module  # Conv. input branch
     _module_c: nn.Module  # Merge branch
 
-    def __init__(self, *args, **kwargs) -> None:
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
         self.save_hyperparameters()
         self._module_a = linear_chain(N_FEATURES, [512, 256])
