@@ -124,6 +124,7 @@ def main():
         #     64,  # -> 8
         #     64,  # -> 4
         # ],
+        n_blocks=2,
     )
     name = model.__class__.__name__.lower()
     train_model(model, train, val, root_dir="out", name=name)

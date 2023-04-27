@@ -1,105 +1,154 @@
 """Model utilities"""
 __docformat__ = "google"
 
-from typing import Dict, List, Optional, Tuple
-import pytorch_lightning as pl
+from typing import Dict, List, Tuple
 
 import torch
 from torch import Tensor, nn
-from transformers.models.resnet.modeling_resnet import ResNetConvLayer
-from transformers.activations import get_activation
-from sklearn.metrics import (
-    accuracy_score,
-    f1_score,
-    hamming_loss,
-    precision_score,
-    recall_score,
+from transformers.models.resnet.modeling_resnet import (
+    ResNetConvLayer,
+    ResNetBasicLayer,
 )
+from transformers.activations import get_activation
 
-from acc23.constants import IMAGE_RESIZE_TO, N_CHANNELS
+
+from acc23.constants import IMAGE_RESIZE_TO
 
 
-class BaseMultilabelClassifier(pl.LightningModule):
-    """Base class for multilabel classifiers (duh)"""
+class ResNetConvTransposeLayer(nn.Module):
+    """
+    Just like `transformers.models.resnet.modeling_resnet.ResNetConvLayer`
+    (i.e. a convolution-normalization-activation) layer, but with a transposed
+    convolution instead.
+    """
 
-    def configure_optimizers(self):
-        return torch.optim.Adam(self.parameters())
+    convolution: nn.Module
+    # normalization: nn.Module
+    activation: nn.Module
 
-    def evaluate(
+    def __init__(
         self,
-        x: Dict[str, Tensor],
-        y: Dict[str, Tensor],
-        img: Tensor,
-        stage: Optional[str] = None,
-    ) -> Tuple[Tensor, float, float, float, float, float]:
-        """
-        Computes and returns various scores and losses. In order:
-        1. Binary cross-entropy (which is the loss used during training),
-        2. Accuracy score,
-        3. Hamming loss,
-        4. Precision score,
-        5. Recall score,
-        6. F1 score.
-
-        Furthermore, if `stage` is given, these values are also logged
-         to tensorboard under `<stage>/loss`, `<stage>/acc`, `<stage>/ham`
-         (lol), `<stage>/prec`, `<stage>/rec`, and `<stage>/f1` respectively.
-        """
-        y_true = concat_tensor_dict(y).float().to(self.device)  # type: ignore
-        y_pred = self(x, img)
-        y_true_np = y_true.cpu().detach().numpy()
-        y_pred_np = y_pred.cpu().detach().numpy() > 0.5
-        # criterion = nn.functional.binary_cross_entropy
-        criterion = nn.functional.mse_loss
-        loss = criterion(y_pred, y_true)
-        acc = accuracy_score(y_true_np, y_pred_np)
-        ham = hamming_loss(y_true_np, y_pred_np)
-        prec = precision_score(
-            y_true_np,
-            y_pred_np,
-            average="samples",
-            zero_division=0,
+        in_channels: int,
+        out_channels: int,
+        activation: str = "relu",
+    ):
+        super().__init__()
+        self.convolution = nn.ConvTranspose2d(
+            in_channels,
+            out_channels,
+            kernel_size=3,
+            stride=2,
+            padding=1,
+            output_padding=1,
+            bias=False,
         )
-        rec = recall_score(
-            y_true_np,
-            y_pred_np,
-            average="samples",
-            zero_division=0,
+        # self.normalization = nn.BatchNorm2d(out_channels)
+        self.activation = (
+            get_activation(activation)
+            if activation is not None
+            else nn.Identity()
         )
-        f1 = f1_score(
-            y_true_np,
-            y_pred_np,
-            average="samples",
-            zero_division=0,
+
+    def forward(self, x: Tensor) -> Tensor:
+        """Override"""
+        x = self.convolution(x)
+        # x = self.normalization(x)
+        x = self.activation(x)
+        return x
+
+
+class ResNetDecoderLayer(nn.Module):
+    """
+    A resnet decoder layer is a sequential model composed of
+    1. `n_blocks`
+       `transformers.models.resnet.modeling_resnet.ResNetBasicLayer`s, which
+       are just double convolution (and normalization-activation) with residual
+       connection.
+    2. a `ResNetConvTransposeLayer` that doubles the size (width or height) of
+       the input image
+    """
+
+    convolution: nn.Module
+    residual_blocks: nn.Sequential
+
+    def __init__(
+        self,
+        in_channels: int,
+        out_channels: int,
+        n_blocks: int = 1,
+        activation: str = "gelu",
+        last_activation: str = "gelu",
+        **kwargs,
+    ) -> None:
+        super().__init__(**kwargs)
+        self.residual_blocks = nn.Sequential(
+            *[
+                ResNetBasicLayer(
+                    in_channels, in_channels, activation=activation
+                )
+                for _ in range(n_blocks)
+            ]
         )
-        if stage is not None:
-            self.log_dict(
-                {
-                    f"{stage}/loss": loss,
-                    f"{stage}/acc": acc,
-                    f"{stage}/ham": ham,
-                    f"{stage}/prec": prec,
-                    f"{stage}/rec": rec,
-                    f"{stage}/f1": f1,
-                },
-                sync_dist=True,
-            )
-        return loss, float(acc), float(ham), float(prec), float(rec), float(f1)
+        self.convolution = ResNetConvTransposeLayer(
+            in_channels,
+            out_channels,
+            activation=last_activation,
+        )
 
-    def training_step(self, batch, *_, **__):
-        x, y, img = batch
-        return self.evaluate(x, y, img, "train")[0]
+    def forward(self, x: Tensor) -> Tensor:
+        """Override"""
+        x = self.residual_blocks(x)
+        x = self.convolution(x)
+        return x
 
-    def validation_step(self, batch, *_, **__):
-        x, y, img = batch
-        return self.evaluate(x, y, img, "val")[0]
+
+class ResNetEncoderLayer(nn.Module):
+    """
+    A resnet encoder layer is a sequential model composed of
+    1. a `transformers.models.resnet.modeling_resnet.ResNetConvLayer` that
+       halves the size (width or height) of the input image.
+    2. `n_blocks`
+       `transformers.models.resnet.modeling_resnet.ResNetBasicLayer`s, which
+       are just double convolution (and normalization-activation) with residual
+       connection.
+    """
+
+    convolution: nn.Module
+    residual_blocks: nn.Sequential
+
+    def __init__(
+        self,
+        in_channels: int,
+        out_channels: int,
+        n_blocks: int = 1,
+        activation: str = "relu",
+        **kwargs,
+    ) -> None:
+        super().__init__(**kwargs)
+        self.convolution = ResNetConvLayer(
+            in_channels, out_channels, 5, 2, activation=activation
+        )
+        self.residual_blocks = nn.Sequential(
+            *[
+                ResNetBasicLayer(
+                    out_channels, out_channels, activation=activation
+                )
+                for _ in range(n_blocks)
+            ]
+        )
+
+    def forward(self, x: Tensor) -> Tensor:
+        """Override"""
+        x = self.convolution(x)
+        x = self.residual_blocks(x)
+        return x
 
 
 def basic_encoder(
-    blocks_channels: List[int],
-    input_size: int = IMAGE_RESIZE_TO,
-    input_channels: int = N_CHANNELS,
+    in_channels: int,
+    out_channels: List[int],
     activation: str = "relu",
+    input_size: int = IMAGE_RESIZE_TO,
 ) -> Tuple[nn.Sequential, int]:
     """
     Basic image encoder that is just a succession of (non skipped) downsampling
@@ -108,22 +157,23 @@ def basic_encoder(
     2. a batch normalization layer, except for the first block,
     3. a sigmoid activation.
     In particular, the output images' size will be `input_size / (2 **
-    len(blocks_channels))`, and the output vector dimension will be
+    len(out_channels))`, and the output vector dimension will be
 
-        blocks_channels[-1] * (input_size / (2 ** len(blocks_channels))) ** 2
+        out_channels[-1] * (input_size / (2 ** len(out_channels))) ** 2
 
     Args:
-        blocks_channels (List[int]): Number of output channels of each
+        in_channels (int): Number of channels of the input image
+        out_channels (List[int]): Number of output channels of each
             block. Note that each blocks cuts the width and height of the input
             by half.
+        activation (str): Activation function name.
         input_size (int): The width (or equivalently the height) of an imput
             image.
-        input_channels (int): Number of channels of the input image
 
     Return:
         The encoder and the (flat) dimension of the output vector.
     """
-    module, c = nn.Sequential(), [input_channels] + blocks_channels
+    module, c = nn.Sequential(), [in_channels] + out_channels
     module = nn.Sequential(
         *[
             ResNetConvLayer(c[i - 1], c[i], 5, 2, activation)
@@ -137,8 +187,8 @@ def basic_encoder(
     #     module.append(get_activation(activation))
     module.append(nn.Flatten())
     # Height (eq. width) of the encoded image before flatten
-    es = int(input_size / (2 ** len(blocks_channels)))
-    return (module, blocks_channels[-1] * (es**2))
+    es = int(input_size / (2 ** len(out_channels)))
+    return (module, out_channels[-1] * (es**2))
 
 
 def concat_tensor_dict(d: Dict[str, Tensor]) -> Tensor:
@@ -174,3 +224,86 @@ def linear_chain(
         module.append(nn.Linear(n[i - 1], n[i]))
         module.append(get_activation(activation))
     return module
+
+
+def resnet_decoder(
+    in_channels: int,
+    out_channels: List[int],
+    activation: str = "gelu",
+    last_activation: str = "sigmoid",
+    n_blocks: int = 1,
+) -> nn.Sequential:
+    """
+    Basic image decoder that is just a succession of resnet decoder (see
+    `acc23.models.utils.ResNetDecoderLayer`). In particular, the output images'
+    size will be `input_size / (2 ** len(out_channels))`.
+
+    Args:
+        in_channels (int): Number of channels of the input image
+        out_channels (List[int]): Number of output channels of each
+            encoder layer. Note that each layer cuts the width and height of
+            the input by half.
+        activation (str): Activation function name.
+        last_activation (str): Activation applied at the end of the last block.
+        n_blocks (int): Number of residual blocks per encoder layer.
+
+    Return:
+        The decoder
+    """
+    c = [in_channels] + out_channels
+    module = nn.Sequential(
+        *[
+            ResNetDecoderLayer(
+                c[i - 1],
+                c[i],
+                n_blocks,
+                activation=activation,
+                last_activation=(
+                    last_activation if i == len(c) - 1 else activation
+                ),
+            )
+            for i in range(1, len(c))
+        ]
+    )
+    return module
+
+
+def resnet_encoder(
+    in_channels: int,
+    out_channels: List[int],
+    activation: str = "relu",
+    n_blocks: int = 1,
+    input_size: int = IMAGE_RESIZE_TO,
+) -> Tuple[nn.Sequential, int]:
+    """
+    Basic image encoder that is just a succession of resnet encoders (see
+    `acc23.models.utils.ResNetEncoderLayer`), followed by a final flatten
+    layer. In particular, the output images' size will be `input_size / (2 **
+    len(out_channels))`, and the output vector dimension will be
+
+        out_channels[-1] * (input_size / (2 ** len(out_channels))) ** 2
+
+    Args:
+        in_channels (int): Number of channels of the input image
+        out_channels (List[int]): Number of output channels of each
+            encoder layer. Note that each layer cuts the width and height of
+            the input by half.
+        activation (str): Activation function name.
+        n_blocks (int): Number of residual blocks per encoder layer.
+        input_size (int): The width (or equivalently the height) of an imput
+            image.
+
+    Return:
+        The encoder and the (flat) dimension of the output vector.
+    """
+    c = [in_channels] + out_channels
+    module = nn.Sequential(
+        *[
+            ResNetEncoderLayer(c[i - 1], c[i], n_blocks, activation)
+            for i in range(1, len(c))
+        ]
+    )
+    module.append(nn.Flatten())
+    # Height (eq. width) of the encoded image before flatten
+    es = int(input_size / (2 ** len(out_channels)))
+    return (module, out_channels[-1] * (es**2))

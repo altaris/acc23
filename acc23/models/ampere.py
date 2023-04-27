@@ -18,11 +18,11 @@ from torch import Tensor, nn
 from acc23.constants import IMAGE_RESIZE_TO, N_CHANNELS, N_FEATURES, N_TARGETS
 
 from .utils import (
-    BaseMultilabelClassifier,
     basic_encoder,
     concat_tensor_dict,
     linear_chain,
 )
+from .base_mlc import BaseMultilabelClassifier
 
 
 class Ampere(BaseMultilabelClassifier):
@@ -37,6 +37,7 @@ class Ampere(BaseMultilabelClassifier):
         self.save_hyperparameters()
         self._module_a = linear_chain(N_FEATURES, [512, 256])
         self._module_b, encoded_dim = basic_encoder(
+            N_CHANNELS,
             [
                 8,  # IMAGE_RESIZE_TO = 128 -> 64
                 16,  # -> 32

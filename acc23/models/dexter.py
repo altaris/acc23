@@ -18,19 +18,17 @@ from acc23.constants import IMAGE_RESIZE_TO, N_CHANNELS, N_FEATURES, N_TARGETS
 
 from .autoencoder import Autoencoder
 from .utils import (
-    BaseMultilabelClassifier,
     concat_tensor_dict,
     linear_chain,
 )
+from .base_mlc import BaseMultilabelClassifier
 
 
 class Dexter(BaseMultilabelClassifier):
     """See module documentation"""
 
-    _module_a: nn.Module  # Input-dense part
-    _module_b: nn.Module  # merge part
-    _module_c: nn.Module  # Attention part (transformer encoder)
-    _module_d: nn.Module  # Output part
+    _module_a: nn.Module  # Input dense branch
+    _module_b: nn.Module  # Merge branch
 
     _autoencoder: Autoencoder
 
@@ -41,6 +39,9 @@ class Dexter(BaseMultilabelClassifier):
     ) -> None:
         super().__init__(**kwargs)
         self.save_hyperparameters()
+        logging.debug(
+            "Loading autoencoder from checkpoint '{}'", autoencoder_ckpt_path
+        )
         self._autoencoder = Autoencoder.load_from_checkpoint(
             autoencoder_ckpt_path
         )
@@ -48,17 +49,9 @@ class Dexter(BaseMultilabelClassifier):
         d = self._autoencoder.hparams["latent_space_dim"]
         logging.debug("Dexter's autoencoder latent space dimension: {}", d)
         self._module_a = linear_chain(N_FEATURES, [d], "relu")
-        self._module_b = linear_chain(2 * d, [d], "relu")
-        self._module_c = self._module_c = nn.TransformerEncoder(
-            nn.TransformerEncoderLayer(
-                d_model=d,
-                nhead=4,
-                dim_feedforward=d,
-                batch_first=True,
-            ),
-            num_layers=4,
-        )
-        self._module_d = nn.Sequential(
+        self._module_b = nn.Sequential(
+            nn.Linear(2 * d, d),
+            nn.ReLU(),
             nn.Linear(d, 128),
             nn.ReLU(),
             nn.Linear(128, 64),
@@ -88,6 +81,4 @@ class Dexter(BaseMultilabelClassifier):
         l = self._autoencoder.encode(img)
         al = torch.concatenate([a, l], dim=-1)
         b = self._module_b(al)
-        c = self._module_c(b)
-        d = self._module_d(c)
-        return d
+        return b
