@@ -15,6 +15,7 @@ from torch import Tensor, nn
 from traitlets import Any
 
 from acc23.constants import IMAGE_RESIZE_TO, N_CHANNELS, N_FEATURES, N_TARGETS
+from acc23.utils import last_checkpoint_path
 
 from .autoencoder import Autoencoder
 from .utils import (
@@ -49,15 +50,11 @@ class Dexter(BaseMultilabelClassifier):
         d = self._autoencoder.hparams["latent_space_dim"]
         logging.debug("Dexter's autoencoder latent space dimension: {}", d)
         self._module_a = linear_chain(N_FEATURES, [d], "relu")
-        self._module_b = nn.Sequential(
-            nn.Linear(2 * d, d),
-            nn.ReLU(),
-            nn.Linear(d, 128),
-            nn.ReLU(),
-            nn.Linear(128, 64),
-            nn.ReLU(),
-            nn.Linear(64, N_TARGETS),
-            nn.Sigmoid(),
+        self._module_b = linear_chain(
+            2 * d,
+            [d, 128, 64, N_TARGETS],
+            activation="relu",
+            last_activation="sigmoid",
         )
         self.example_input_array = (
             torch.zeros((1, N_FEATURES)),

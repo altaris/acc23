@@ -18,7 +18,7 @@ from torch import Tensor, nn
 from acc23.constants import IMAGE_RESIZE_TO, N_CHANNELS, N_FEATURES, N_TARGETS
 
 from .utils import (
-    basic_encoder,
+    resnet_encoder,
     concat_tensor_dict,
     linear_chain,
 )
@@ -35,18 +35,36 @@ class Ampere(BaseMultilabelClassifier):
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
         self.save_hyperparameters()
-        self._module_a = linear_chain(N_FEATURES, [512, 256])
-        self._module_b, encoded_dim = basic_encoder(
+        self._module_a = linear_chain(
+            N_FEATURES, [256, 512], activation="relu", last_activation="relu"
+        )
+        self._module_b, encoded_dim = resnet_encoder(
             N_CHANNELS,
             [
-                8,  # IMAGE_RESIZE_TO = 128 -> 64
-                16,  # -> 32
+                16,  # IMAGE_RESIZE_TO = 512 -> 256
+                16,  # -> 128
+                16,  # -> 64
+                32,  # -> 32
                 32,  # -> 16
-                32,  # -> 8
+                64,  # -> 8
                 64,  # -> 4
+                128,  # -> 2
             ],
+            # [
+            #     8,  # IMAGE_RESIZE_TO = 128 -> 64
+            #     16,  # -> 32
+            #     32,  # -> 16
+            #     32,  # -> 8
+            #     64,  # -> 4
+            # ],
+            n_blocks=2,
         )
-        self._module_c = linear_chain(256 + encoded_dim, [256, 64, N_TARGETS])
+        self._module_c = linear_chain(
+            512 + encoded_dim,
+            [512, 128, 64, N_TARGETS],
+            activation="relu",
+            last_activation="sigmoid",
+        )
         self.example_input_array = (
             torch.zeros((1, N_FEATURES)),
             torch.zeros((1, N_CHANNELS, IMAGE_RESIZE_TO, IMAGE_RESIZE_TO)),

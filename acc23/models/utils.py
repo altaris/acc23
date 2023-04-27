@@ -214,7 +214,10 @@ def concat_tensor_dict(d: Dict[str, Tensor]) -> Tensor:
 
 
 def linear_chain(
-    n_inputs: int, n_neurons: List[int], activation: str = "sigmoid"
+    n_inputs: int,
+    n_neurons: List[int],
+    activation: str = "sigmoid",
+    last_activation: str = "sigmoid",
 ) -> nn.Sequential:
     """
     A sequence of linear layers with sigmoid activation (including at the end).
@@ -222,7 +225,9 @@ def linear_chain(
     n, module = [n_inputs] + n_neurons, nn.Sequential()
     for i in range(1, len(n)):
         module.append(nn.Linear(n[i - 1], n[i]))
-        module.append(get_activation(activation))
+        module.append(
+            get_activation(last_activation if i == len(n) - 1 else activation)
+        )
     return module
 
 
