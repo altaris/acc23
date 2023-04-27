@@ -98,34 +98,13 @@ def submit(
     csv_file: Path, ipynb_file: Path, challenge_id: int, token: str, *_, **__
 ):
     """Submits a run to trustii"""
-    import requests
+
+    from acc23.postprocessing import submit_to_trustii
 
     if not token:
         logging.error("No token provided")
         sys.exit(1)
-
-    endpoint_url = (
-        f"https://api.trustii.io/api/ds/notebook/datasets/{challenge_id}"
-        "/prediction"
-    )
-    with open(csv_file, "rb") as fp:
-        csv_data = fp.read()
-    with open(ipynb_file, "rb") as fp:
-        ipynb_data = fp.read()
-    headers = {"Trustii-Api-User-Token": token}
-    data = {
-        "csv_file": ("predictions.csv", csv_data),
-        "ipynb_file": ("notebook.ipynb", ipynb_data),
-    }
-    response = requests.post(
-        endpoint_url, headers=headers, files=data, timeout=100
-    )
-    if response.status_code == 200:
-        logging.success("Submitted: {}", response.text)
-    else:
-        logging.error(
-            "Submission failed: {} {}", response.status_code, response.text
-        )
+    submit_to_trustii(csv_file, ipynb_file, challenge_id, token)
 
 
 # pylint: disable=no-value-for-parameter

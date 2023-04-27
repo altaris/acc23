@@ -10,9 +10,8 @@ import pandas as pd
 import torch
 from torch.utils.data import DataLoader, Dataset
 
-from acc23.constants import IMAGE_RESIZE_TO, N_CHANNELS
-
-from .preprocessing import TARGETS, load_csv, load_image
+from acc23.constants import IMAGE_RESIZE_TO, N_CHANNELS, TARGETS
+from acc23.preprocessing import load_csv, load_image
 
 Transform_t = Callable[[torch.Tensor], torch.Tensor]
 
