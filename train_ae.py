@@ -109,9 +109,9 @@ def main():
     train, val = ds.test_train_split_dl()
     model = Autoencoder(
         out_channels=[
-            16,   # IMAGE_RESIZE_TO = 512 -> 256
-            16,   # -> 128
-            16,   # -> 64
+            16,  # IMAGE_RESIZE_TO = 512 -> 256
+            16,  # -> 128
+            16,  # -> 64
             32,  # -> 32
             32,  # -> 16
             64,  # -> 8
@@ -124,7 +124,8 @@ def main():
         #     64,  # -> 8
         #     64,  # -> 4
         # ],
-        n_blocks=2,
+        n_blocks=4,
+        latent_space_dim=256,
     )
     name = model.__class__.__name__.lower()
     train_model(model, train, val, root_dir="out", name=name)
