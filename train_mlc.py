@@ -7,6 +7,7 @@ from loguru import logger as logging
 
 from acc23.dataset import ACCDataset
 from acc23.models import Ampere as Model
+# from acc23.models import Dexter as Model
 from acc23.utils import last_checkpoint_path, train_model
 from acc23.postprocessing import evaluate_on_test_dataset
 

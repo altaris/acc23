@@ -45,15 +45,15 @@ class BaseMultilabelClassifier(pl.LightningModule):
         5. Recall score,
         6. F1 score.
 
-        Furthermore, if `stage` is given, these values are also logged
-         to tensorboard under `<stage>/loss`, `<stage>/acc`, `<stage>/ham`
-         (lol), `<stage>/prec`, `<stage>/rec`, and `<stage>/f1` respectively.
+        Furthermore, if `stage` is given, these values are also logged to
+        tensorboard under `<stage>/loss`, `<stage>/acc`, `<stage>/ham` (lol),
+        `<stage>/prec`, `<stage>/rec`, and `<stage>/f1` respectively.
         """
         y_true = concat_tensor_dict(y).float().to(self.device)  # type: ignore
         y_pred = self(x, img)
         y_true_np = y_true.cpu().detach().numpy()
         y_pred_np = y_pred.cpu().detach().numpy() > 0.5
-        loss = nn.functional.mse_loss(y_pred, y_true)
+        loss = cf1(y_pred, y_true)
         acc = accuracy_score(y_true_np, y_pred_np)
         ham = hamming_loss(y_true_np, y_pred_np)
         prec = precision_score(
@@ -95,3 +95,42 @@ class BaseMultilabelClassifier(pl.LightningModule):
     def validation_step(self, batch, *_, **__):
         x, y, img = batch
         return self.evaluate(x, y, img, "val")[0]
+
+
+def bp_mll_loss(y_pred: Tensor, y_true: Tensor) -> Tensor:
+    """
+    BM-MLL loss introduced in
+
+        Zhang, Min-Ling, and Zhi-Hua Zhou. "Multilabel neural networks with
+        applications to functional genomics and text categorization." IEEE
+        transactions on Knowledge and Data Engineering 18.10 (2006): 1338-1351.
+    """
+    y_bar = 1 - y_true
+    k = 1 / (y_true.sum(dim=-1) * y_bar.sum(dim=-1) + 1e-10)
+    s = y_true.unsqueeze(-1) * y_bar.unsqueeze(1)
+    # s_ijk = y_true_ij and (not y_true_ik)
+    a = y_pred.unsqueeze(-1) - y_pred.unsqueeze(1)
+    # a_ijk = y_pred_ij - y_pred_ik
+    b = s * torch.exp(-a)
+    return (k * b.sum((1, 2))).mean()
+    # Some tests:
+    # y_true = torch.Tensor([[0, 1, 0], [1, 1, 0]])
+    # y_pred = torch.Tensor([[.1, .8, .9], [.1, .9, .1]])
+    # for i in range(2):
+    #     for j in range(3):
+    #         for k in range(3):
+    #             assert s[i, j, k] == y_true[i, j] * (1 - y_true[i, k])
+    #             assert a[i, j, k] == y_pred[i, j] - y_pred[i, k]
+
+def cf1(y_pred: Tensor, y_true: Tensor) -> Tensor:
+    """
+    Home-baked continuous (and differentiable) analogue to the *negative* mean
+    (or sample-average) F1 score.
+    """
+    p, n = y_true, (1 - y_true)
+    pp, pn = y_pred, (1 - y_pred)
+    tp, fp, fn = p * pp, n * pp, p * pn
+    tp, fp, fn = tp ** 2, fp ** 2, fn ** 2
+    tp, fp, fn = tp.sum(dim=-1), fp.sum(dim=-1), fn.sum(dim=-1)
+    nf1 = - 2 * tp / (2 * tp + fp + fn)
+    return nf1.mean()
