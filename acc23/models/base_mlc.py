@@ -53,8 +53,11 @@ class BaseMultilabelClassifier(pl.LightningModule):
         y_pred = self(x, img)
         y_true_np = y_true.cpu().detach().numpy()
         y_pred_np = y_pred.cpu().detach().numpy() > 0.5
-        loss = nn.functional.mse_loss(y_pred, y_true)  # - cf1(y_pred, y_true)
-        # loss = nn.functional.binary_cross_entropy(y_pred, y_true)
+        w = 0.5
+        loss = nn.functional.mse_loss(y_pred, y_true) - w * cf1(y_pred, y_true)
+        # loss = nn.functional.binary_cross_entropy(y_pred, y_true) - w * cf1(
+        #     y_pred, y_true
+        # )
         acc = accuracy_score(y_true_np, y_pred_np)
         ham = hamming_loss(y_true_np, y_pred_np)
         kw = {
