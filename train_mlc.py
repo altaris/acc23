@@ -37,7 +37,7 @@ def main():
     df = evaluate_on_test_dataset(model, "data/test.csv", "data/images")
     dt = datetime.now().strftime("%Y-%m-%d-%H-%M")
     path = f"out/{dt}.{name}.csv"
-    df.to_csv(path, index=True)
+    df.to_csv(path, index=False)
     logging.info("Saved test set prediction to '{}'", path)
 
 

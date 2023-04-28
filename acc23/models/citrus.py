@@ -12,6 +12,7 @@ from torch import Tensor, nn
 from acc23.constants import IMAGE_RESIZE_TO, N_CHANNELS, N_FEATURES, N_TARGETS
 
 from .utils import (
+    ResNetLinearLayer,
     basic_encoder,
     concat_tensor_dict,
     linear_chain,
@@ -33,15 +34,31 @@ class Citrus(BaseMultilabelClassifier):
         self._module_b, encoded_dim = basic_encoder(
             N_CHANNELS,
             [
-                4,  # IMAGE_RESIZE_TO = 128 -> 64
-                8,  # -> 32
-                16,  # -> 16
-                32,  # -> 8
+                16,  # IMAGE_RESIZE_TO = 512 -> 256
+                16,  # -> 128
+                16,  # -> 64
+                32,  # -> 32
+                32,  # -> 16
+                64,  # -> 8
                 64,  # -> 4
-                64,  # -> 2
+                128,  # -> 2
             ],
+            # [
+            #     4,  # IMAGE_RESIZE_TO = 128 -> 64
+            #     8,  # -> 32
+            #     16,  # -> 16
+            #     32,  # -> 8
+            #     64,  # -> 4
+            #     64,  # -> 2
+            # ],
         )
-        self._module_a = linear_chain(N_FEATURES, [encoded_dim])
+        # self._module_a = linear_chain(N_FEATURES, [encoded_dim])
+        self._module_a = nn.Sequential(
+            ResNetLinearLayer(N_FEATURES, 256),
+            ResNetLinearLayer(256, 256),
+            ResNetLinearLayer(256, 512),
+            ResNetLinearLayer(512, encoded_dim),
+        )
         self._module_c = nn.TransformerEncoder(
             nn.TransformerEncoderLayer(
                 d_model=2 * encoded_dim,
@@ -52,16 +69,22 @@ class Citrus(BaseMultilabelClassifier):
             num_layers=2,
         )
         self._module_d = nn.Sequential(
-            nn.Linear(2 * encoded_dim, encoded_dim),
-            nn.ReLU(),
-            nn.Linear(encoded_dim, 128),
-            nn.ReLU(),
-            nn.Linear(128, N_TARGETS),
-            nn.Sigmoid(),
+            ResNetLinearLayer(2 * encoded_dim, 512),
+            ResNetLinearLayer(512, 128),
+            ResNetLinearLayer(128, 64),
+            ResNetLinearLayer(64, N_TARGETS, activation="sigmoid"),
         )
+        # self._module_d = nn.Sequential(
+        #     nn.Linear(2 * encoded_dim, encoded_dim),
+        #     nn.ReLU(),
+        #     nn.Linear(encoded_dim, 128),
+        #     nn.ReLU(),
+        #     nn.Linear(128, N_TARGETS),
+        #     nn.Sigmoid(),
+        # )
         self.example_input_array = (
-            torch.zeros((1, N_FEATURES)),
-            torch.zeros((1, N_CHANNELS, IMAGE_RESIZE_TO, IMAGE_RESIZE_TO)),
+            torch.zeros((32, N_FEATURES)),
+            torch.zeros((32, N_CHANNELS, IMAGE_RESIZE_TO, IMAGE_RESIZE_TO)),
         )
         self.forward(*self.example_input_array)
 

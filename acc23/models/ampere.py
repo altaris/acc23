@@ -39,10 +39,6 @@ class Ampere(BaseMultilabelClassifier):
         # self._module_a = linear_chain(
         #     N_FEATURES, [256, 512], activation="relu", last_activation="relu"
         # )
-        self._module_a = nn.Sequential(
-            ResNetLinearLayer(N_FEATURES, 256),
-            ResNetLinearLayer(256, 512),
-        )
         self._module_b, encoded_dim = resnet_encoder(
             N_CHANNELS,
             [
@@ -64,12 +60,27 @@ class Ampere(BaseMultilabelClassifier):
             # ],
             n_blocks=2,
         )
-        self._module_c = linear_chain(
-            512 + encoded_dim,
-            [512, 128, 64, N_TARGETS],
-            activation="relu",
-            last_activation="sigmoid",
+        self._module_a = nn.Sequential(
+            ResNetLinearLayer(N_FEATURES, 256),
+            ResNetLinearLayer(256, 256),
+            ResNetLinearLayer(256, 512),
+            ResNetLinearLayer(512, 512),
+            ResNetLinearLayer(512, encoded_dim),
         )
+        self._module_c = nn.Sequential(
+            ResNetLinearLayer(2 * encoded_dim, 512),
+            ResNetLinearLayer(512, 512),
+            ResNetLinearLayer(512, 256),
+            ResNetLinearLayer(256, 256),
+            ResNetLinearLayer(256, 64),
+            ResNetLinearLayer(64, N_TARGETS, activation="sigmoid"),
+        )
+        # self._module_c = linear_chain(
+        #     512 + encoded_dim,
+        #     [512, 128, 64, N_TARGETS],
+        #     activation="relu",
+        #     last_activation="sigmoid",
+        # )
         self.example_input_array = (
             torch.zeros((32, N_FEATURES)),
             torch.zeros((32, N_CHANNELS, IMAGE_RESIZE_TO, IMAGE_RESIZE_TO)),

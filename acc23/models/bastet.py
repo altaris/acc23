@@ -11,6 +11,7 @@ from torch import Tensor, nn
 from acc23.constants import IMAGE_RESIZE_TO, N_CHANNELS, N_FEATURES, N_TARGETS
 
 from .utils import (
+    ResNetLinearLayer,
     basic_encoder,
     concat_tensor_dict,
     linear_chain,
@@ -32,26 +33,53 @@ class Bastet(BaseMultilabelClassifier):
         self._module_b, encoded_dim = basic_encoder(
             N_CHANNELS,
             [
-                4,  # IMAGE_RESIZE_TO = 128 -> 64
-                8,  # -> 32
-                16,  # -> 16
-                32,  # -> 8
+                8,  # IMAGE_RESIZE_TO = 512 -> 256
+                16,  # -> 128
+                16,  # -> 64
+                32,  # -> 32
+                32,  # -> 16
+                64,  # -> 8
                 64,  # -> 4
                 128,  # -> 2
             ],
+            # [
+            #     4,  # IMAGE_RESIZE_TO = 128 -> 64
+            #     8,  # -> 32
+            #     16,  # -> 16
+            #     32,  # -> 8
+            #     64,  # -> 4
+            #     128,  # -> 2
+            # ],
         )
-        self._module_a = linear_chain(N_FEATURES, [512, encoded_dim])
+        # self._module_a = linear_chain(N_FEATURES, [512, encoded_dim])
+        self._module_a = nn.Sequential(
+            ResNetLinearLayer(N_FEATURES, 256),
+            ResNetLinearLayer(256, 256),
+            ResNetLinearLayer(256, 512),
+            ResNetLinearLayer(512, encoded_dim),
+        )
         self._module_c = nn.Transformer(
             d_model=encoded_dim,
             nhead=8,
             batch_first=True,
-            num_encoder_layers=1,
-            num_decoder_layers=4,
+            num_encoder_layers=6,
+            num_decoder_layers=6,
         )
-        self._module_d = linear_chain(encoded_dim, [256, 64, N_TARGETS])
+        # self._module_d = linear_chain(
+        #     encoded_dim,
+        #     [256, 64, N_TARGETS],
+        #     activation="relu",
+        #     last_activation="sigmoid",
+        # )
+        self._module_d = nn.Sequential(
+            ResNetLinearLayer(encoded_dim, 256),
+            ResNetLinearLayer(256, 128),
+            ResNetLinearLayer(128, 64),
+            ResNetLinearLayer(64, N_TARGETS, activation="sigmoid"),
+        )
         self.example_input_array = (
-            torch.zeros((1, N_FEATURES)),
-            torch.zeros((1, N_CHANNELS, IMAGE_RESIZE_TO, IMAGE_RESIZE_TO)),
+            torch.zeros((32, N_FEATURES)),
+            torch.zeros((32, N_CHANNELS, IMAGE_RESIZE_TO, IMAGE_RESIZE_TO)),
         )
         self.forward(*self.example_input_array)
 
