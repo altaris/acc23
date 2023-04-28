@@ -51,55 +51,55 @@ def output_to_dataframe(y: Tensor) -> pd.DataFrame:
     arr = y.cpu().detach().numpy()
     arr = (arr > 0.5).astype(int)
     df = pd.DataFrame(data=arr, columns=TARGETS)
-    df["Allergy_Present"] = df.sum(axis=1).clip(0, 1)
-    df["Respiratory_Allergy"] = (
-        df[
-            [
-                "Type_of_Respiratory_Allergy_ARIA",
-                "Type_of_Respiratory_Allergy_CONJ",
-                "Type_of_Respiratory_Allergy_GINA",
-                "Type_of_Respiratory_Allergy_IGE_Pollen_Gram",
-                "Type_of_Respiratory_Allergy_IGE_Pollen_Herb",
-                "Type_of_Respiratory_Allergy_IGE_Pollen_Tree",
-                "Type_of_Respiratory_Allergy_IGE_Dander_Animals",
-                "Type_of_Respiratory_Allergy_IGE_Mite_Cockroach",
-                "Type_of_Respiratory_Allergy_IGE_Molds_Yeast",
-            ]
-        ]
-        .sum(axis=1)
-        .clip(0, 1)
-    )
-    df["Food_Allergy"] = (
-        df[
-            [
-                "Type_of_Food_Allergy_Aromatics",
-                "Type_of_Food_Allergy_Other",
-                "Type_of_Food_Allergy_Cereals_&_Seeds",
-                "Type_of_Food_Allergy_Egg",
-                "Type_of_Food_Allergy_Fish",
-                "Type_of_Food_Allergy_Fruits_and_Vegetables",
-                "Type_of_Food_Allergy_Mammalian_Milk",
-                "Type_of_Food_Allergy_Oral_Syndrom",
-                "Type_of_Food_Allergy_Other_Legumes",
-                "Type_of_Food_Allergy_Peanut",
-                "Type_of_Food_Allergy_Shellfish",
-                "Type_of_Food_Allergy_TPO",
-                "Type_of_Food_Allergy_Tree_Nuts",
-            ]
-        ]
-        .sum(axis=1)
-        .clip(0, 1)
-    )
-    df["Venom_Allergy"] = (
-        df[
-            [
-                "Type_of_Venom_Allergy_ATCD_Venom",
-                "Type_of_Venom_Allergy_IGE_Venom",
-            ]
-        ]
-        .sum(axis=1)
-        .clip(0, 1)
-    )
+    # df["Allergy_Present"] = df.sum(axis=1).clip(0, 1)
+    # df["Respiratory_Allergy"] = (
+    #     df[
+    #         [
+    #             "Type_of_Respiratory_Allergy_ARIA",
+    #             "Type_of_Respiratory_Allergy_CONJ",
+    #             "Type_of_Respiratory_Allergy_GINA",
+    #             "Type_of_Respiratory_Allergy_IGE_Pollen_Gram",
+    #             "Type_of_Respiratory_Allergy_IGE_Pollen_Herb",
+    #             "Type_of_Respiratory_Allergy_IGE_Pollen_Tree",
+    #             "Type_of_Respiratory_Allergy_IGE_Dander_Animals",
+    #             "Type_of_Respiratory_Allergy_IGE_Mite_Cockroach",
+    #             "Type_of_Respiratory_Allergy_IGE_Molds_Yeast",
+    #         ]
+    #     ]
+    #     .sum(axis=1)
+    #     .clip(0, 1)
+    # )
+    # df["Food_Allergy"] = (
+    #     df[
+    #         [
+    #             "Type_of_Food_Allergy_Aromatics",
+    #             "Type_of_Food_Allergy_Other",
+    #             "Type_of_Food_Allergy_Cereals_&_Seeds",
+    #             "Type_of_Food_Allergy_Egg",
+    #             "Type_of_Food_Allergy_Fish",
+    #             "Type_of_Food_Allergy_Fruits_and_Vegetables",
+    #             "Type_of_Food_Allergy_Mammalian_Milk",
+    #             "Type_of_Food_Allergy_Oral_Syndrom",
+    #             "Type_of_Food_Allergy_Other_Legumes",
+    #             "Type_of_Food_Allergy_Peanut",
+    #             "Type_of_Food_Allergy_Shellfish",
+    #             "Type_of_Food_Allergy_TPO",
+    #             "Type_of_Food_Allergy_Tree_Nuts",
+    #         ]
+    #     ]
+    #     .sum(axis=1)
+    #     .clip(0, 1)
+    # )
+    # df["Venom_Allergy"] = (
+    #     df[
+    #         [
+    #             "Type_of_Venom_Allergy_ATCD_Venom",
+    #             "Type_of_Venom_Allergy_IGE_Venom",
+    #         ]
+    #     ]
+    #     .sum(axis=1)
+    #     .clip(0, 1)
+    # )
     return df
 
 
