@@ -53,27 +53,19 @@ class BaseMultilabelClassifier(pl.LightningModule):
         y_pred = self(x, img)
         y_true_np = y_true.cpu().detach().numpy()
         y_pred_np = y_pred.cpu().detach().numpy() > 0.5
-        loss = cf1(y_pred, y_true)
+        loss = nn.functional.mse_loss(y_pred, y_true)  # - cf1(y_pred, y_true)
+        # loss = nn.functional.binary_cross_entropy(y_pred, y_true)
         acc = accuracy_score(y_true_np, y_pred_np)
         ham = hamming_loss(y_true_np, y_pred_np)
-        prec = precision_score(
-            y_true_np,
-            y_pred_np,
-            average="samples",
-            zero_division=0,
-        )
-        rec = recall_score(
-            y_true_np,
-            y_pred_np,
-            average="samples",
-            zero_division=0,
-        )
-        f1 = f1_score(
-            y_true_np,
-            y_pred_np,
-            average="samples",
-            zero_division=0,
-        )
+        kw = {
+            "y_true": y_true_np,
+            "y_pred": y_pred_np,
+            "average": "samples",
+            "zero_division": 0,
+        }
+        prec = precision_score(**kw)
+        rec = recall_score(**kw)
+        f1 = f1_score(**kw)
         if stage is not None:
             self.log(f"{stage}/f1", f1, sync_dist=True, prog_bar=True)
             self.log_dict(
@@ -122,15 +114,16 @@ def bp_mll_loss(y_pred: Tensor, y_true: Tensor) -> Tensor:
     #             assert s[i, j, k] == y_true[i, j] * (1 - y_true[i, k])
     #             assert a[i, j, k] == y_pred[i, j] - y_pred[i, k]
 
+
 def cf1(y_pred: Tensor, y_true: Tensor) -> Tensor:
     """
-    Home-baked continuous (and differentiable) analogue to the *negative* mean
-    (or sample-average) F1 score.
+    Home-baked continuous (and differentiable) analogue to the mean (or
+    sample-average) F1 score.
     """
     p, n = y_true, (1 - y_true)
     pp, pn = y_pred, (1 - y_pred)
     tp, fp, fn = p * pp, n * pp, p * pn
-    tp, fp, fn = tp ** 2, fp ** 2, fn ** 2
+    tp, fp, fn = tp**2, fp**2, fn**2
     tp, fp, fn = tp.sum(dim=-1), fp.sum(dim=-1), fn.sum(dim=-1)
-    nf1 = - 2 * tp / (2 * tp + fp + fn)
+    nf1 = 2 * tp / (2 * tp + fp + fn)
     return nf1.mean()

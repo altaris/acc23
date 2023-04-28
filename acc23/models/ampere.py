@@ -21,6 +21,7 @@ from .utils import (
     resnet_encoder,
     concat_tensor_dict,
     linear_chain,
+    ResNetLinearLayer,
 )
 from .base_mlc import BaseMultilabelClassifier
 
@@ -35,8 +36,12 @@ class Ampere(BaseMultilabelClassifier):
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
         self.save_hyperparameters()
-        self._module_a = linear_chain(
-            N_FEATURES, [256, 512], activation="relu", last_activation="relu"
+        # self._module_a = linear_chain(
+        #     N_FEATURES, [256, 512], activation="relu", last_activation="relu"
+        # )
+        self._module_a = nn.Sequential(
+            ResNetLinearLayer(N_FEATURES, 256),
+            ResNetLinearLayer(256, 512),
         )
         self._module_b, encoded_dim = resnet_encoder(
             N_CHANNELS,
@@ -66,8 +71,8 @@ class Ampere(BaseMultilabelClassifier):
             last_activation="sigmoid",
         )
         self.example_input_array = (
-            torch.zeros((1, N_FEATURES)),
-            torch.zeros((1, N_CHANNELS, IMAGE_RESIZE_TO, IMAGE_RESIZE_TO)),
+            torch.zeros((32, N_FEATURES)),
+            torch.zeros((32, N_CHANNELS, IMAGE_RESIZE_TO, IMAGE_RESIZE_TO)),
         )
         self.forward(*self.example_input_array)
 
