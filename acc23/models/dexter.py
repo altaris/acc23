@@ -18,6 +18,7 @@ from acc23.constants import IMAGE_RESIZE_TO, N_CHANNELS, N_FEATURES, N_TARGETS
 
 from .autoencoder import Autoencoder
 from .utils import (
+    ResNetLinearLayer,
     concat_tensor_dict,
     linear_chain,
 )
@@ -48,16 +49,32 @@ class Dexter(BaseMultilabelClassifier):
         self._autoencoder.freeze()
         d = self._autoencoder.hparams["latent_space_dim"]
         logging.debug("Dexter's autoencoder latent space dimension: {}", d)
-        self._module_a = linear_chain(N_FEATURES, [d], "relu")
-        self._module_b = linear_chain(
-            2 * d,
-            [d, 128, 64, N_TARGETS],
-            activation="relu",
-            last_activation="sigmoid",
+        # self._module_a = linear_chain(N_FEATURES, [d], "relu")
+        # self._module_a = nn.Sequential(
+        #     ResNetLinearLayer(N_FEATURES, 256),
+        #     ResNetLinearLayer(256, d),
+        # )
+        self._module_a = nn.Sequential(
+            ResNetLinearLayer(N_FEATURES, 256),
+            ResNetLinearLayer(256, 256),
+            ResNetLinearLayer(256, 512),
+            ResNetLinearLayer(512, d),
         )
+        self._module_b = nn.Sequential(
+            ResNetLinearLayer(2 * d, d),
+            ResNetLinearLayer(d, 128),
+            ResNetLinearLayer(128, 64),
+            ResNetLinearLayer(64, N_TARGETS, activation="sigmoid"),
+        )
+        # self._module_b = linear_chain(
+        #     2 * d,
+        #     [d, 128, 64, N_TARGETS],
+        #     activation="relu",
+        #     last_activation="sigmoid",
+        # )
         self.example_input_array = (
-            torch.zeros((1, N_FEATURES)),
-            torch.zeros((1, N_CHANNELS, IMAGE_RESIZE_TO, IMAGE_RESIZE_TO)),
+            torch.zeros((32, N_FEATURES)),
+            torch.zeros((32, N_CHANNELS, IMAGE_RESIZE_TO, IMAGE_RESIZE_TO)),
         )
         self.forward(*self.example_input_array)
 
