@@ -15,7 +15,6 @@ from torch import Tensor, nn
 from traitlets import Any
 
 from acc23.constants import IMAGE_RESIZE_TO, N_CHANNELS, N_FEATURES, N_TARGETS
-from acc23.utils import last_checkpoint_path
 
 from .autoencoder import Autoencoder
 from .utils import (
