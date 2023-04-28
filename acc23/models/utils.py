@@ -1,7 +1,7 @@
 """Model utilities"""
 __docformat__ = "google"
 
-from typing import Dict, List, Tuple
+from typing import Dict, List, Optional, Tuple
 
 import torch
 from torch import Tensor, nn
@@ -142,6 +142,44 @@ class ResNetEncoderLayer(nn.Module):
         x = self.convolution(x)
         x = self.residual_blocks(x)
         return x
+
+
+class ResNetLinearLayer(nn.Module):
+    """Linear block with skip connection"""
+
+    linear: nn.Module
+    residual: nn.Module
+    activation: nn.Module
+
+    def __init__(
+        self,
+        in_features: int,
+        out_features: int,
+        latent_features: Optional[int] = None,
+        activation: str = "relu",
+        **kwargs,
+    ) -> None:
+        super().__init__(**kwargs)
+        latent_features = latent_features or out_features
+        self.activation = get_activation(activation)
+        self.linear = nn.Sequential(
+            nn.Linear(in_features, latent_features),
+            nn.BatchNorm1d(latent_features),
+            get_activation(activation),
+            nn.Linear(latent_features, out_features),
+            nn.BatchNorm1d(out_features),
+        )
+        self.residual = (
+            nn.Identity()
+            if in_features == out_features
+            else nn.Linear(in_features, out_features)
+        )
+
+    def forward(self, x: Tensor) -> Tensor:
+        """Override"""
+        a = self.linear(x)
+        b = self.residual(x)
+        return self.activation(a + b)
 
 
 def basic_encoder(
