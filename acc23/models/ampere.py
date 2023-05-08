@@ -20,7 +20,6 @@ from acc23.constants import IMAGE_RESIZE_TO, N_CHANNELS, N_FEATURES, N_TARGETS
 from .utils import (
     resnet_encoder,
     concat_tensor_dict,
-    linear_chain,
     ResNetLinearLayer,
 )
 from .base_mlc import BaseMultilabelClassifier
@@ -50,6 +49,7 @@ class Ampere(BaseMultilabelClassifier):
                 64,  # -> 8
                 64,  # -> 4
                 128,  # -> 2
+                256,  # -> 1
             ],
             # [
             #     8,  # IMAGE_RESIZE_TO = 128 -> 64
@@ -58,23 +58,26 @@ class Ampere(BaseMultilabelClassifier):
             #     32,  # -> 8
             #     64,  # -> 4
             # ],
-            n_blocks=2,
+            n_blocks=1,
         )
         self._module_a = nn.Sequential(
             ResNetLinearLayer(N_FEATURES, 256),
             ResNetLinearLayer(256, 256),
-            ResNetLinearLayer(256, 512),
-            ResNetLinearLayer(512, 512),
-            ResNetLinearLayer(512, encoded_dim),
+            ResNetLinearLayer(256, 256),
+            ResNetLinearLayer(256, 256),
+            ResNetLinearLayer(256, encoded_dim),
         )
         self._module_c = nn.Sequential(
             ResNetLinearLayer(2 * encoded_dim, 512),
-            ResNetLinearLayer(512, 512),
             ResNetLinearLayer(512, 256),
+            ResNetLinearLayer(256, 256),
             ResNetLinearLayer(256, 256),
             ResNetLinearLayer(256, 64),
             ResNetLinearLayer(64, N_TARGETS, last_activation="sigmoid"),
         )
+        for p in self.parameters():
+            if p.ndim >= 2:
+                torch.nn.init.xavier_normal_(p)
         # self._module_c = linear_chain(
         #     512 + encoded_dim,
         #     [512, 128, 64, N_TARGETS],

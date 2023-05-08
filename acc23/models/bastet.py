@@ -14,7 +14,6 @@ from .utils import (
     ResNetLinearLayer,
     basic_encoder,
     concat_tensor_dict,
-    linear_chain,
 )
 from .base_mlc import BaseMultilabelClassifier
 

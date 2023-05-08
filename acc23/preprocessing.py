@@ -9,24 +9,17 @@ import pandas as pd
 import torch
 from loguru import logger as logging
 from PIL import Image
+from rich.progress import track
 from sklearn.base import TransformerMixin
-from sklearn.impute import KNNImputer, SimpleImputer
-from sklearn.preprocessing import (
-    FunctionTransformer,
-    MinMaxScaler,
-    MultiLabelBinarizer,
-)
+from sklearn.impute import SimpleImputer
+from sklearn.preprocessing import (FunctionTransformer, MinMaxScaler,
+                                   MultiLabelBinarizer, StandardScaler)
 from sklearn_pandas import DataFrameMapper
 from sklearn_pandas.pipeline import make_transformer_pipeline
 from torchvision.transforms.functional import resize
 
-from acc23.constants import (
-    IMAGE_RESIZE_TO,
-    N_CHANNELS,
-    TARGETS,
-    ALLERGENS,
-    CLASSES,
-)
+from acc23.constants import (ALLERGENS, CLASSES, IMAGE_RESIZE_TO, N_CHANNELS,
+                             TARGETS)
 
 
 class MultiLabelSplitBinarizer(TransformerMixin):
@@ -130,16 +123,24 @@ def impute_dataframe(df: pd.DataFrame) -> pd.DataFrame:
     TODO: list all of them
     """
     logging.debug("Imputing dataframe")
+
+    # PMF imputation for allergen columns
+    a = df[ALLERGENS].to_numpy()
+    df[ALLERGENS] = pmf_impute(a, 30)
+
+    # Simple imputations
     imputers = [
         (["Age"], SimpleImputer()),
         (["Gender"], SimpleImputer(strategy="most_frequent")),
-        (ALLERGENS, KNNImputer()),
+        # (ALLERGENS, KNNImputer()),
     ]
     # Check that non-impute columns don't have nans
     impute_columns: List[str] = []
     for i in imputers:
         c: Union[str, List[str]] = i[0]
         impute_columns += c if isinstance(c, list) else [c]
+
+    # Dummy imputers to retain all the columns
     non_impute_columns = [c for c in df.columns if c not in impute_columns]
     for c in non_impute_columns:
         a, b = df[c].count(), len(df)
@@ -148,6 +149,7 @@ def impute_dataframe(df: pd.DataFrame) -> pd.DataFrame:
                 f"Columns '{c}' is marked for non-imputation but it has "
                 f"{b - a} / {b} nan values ({(b - a) / b * 100} %)"
             )
+
     dummy_imputers = [(c, FunctionTransformer()) for c in non_impute_columns]
     # There's some issues if we ask the mapper to return a dataframe
     # (df_out=True): All allergen columns get merged :/ Instead we get an array
@@ -216,6 +218,52 @@ def map_split(x: np.ndarray, delimiters: str = ",") -> Iterable[str]:
         return [b for b in a if b not in values_to_ignore]
 
     return map(f, x)  # type: ignore
+
+
+def pmf_impute(
+    x: np.ndarray,
+    latent_dim: int = 10,
+    n_iter: int = 2000,
+    sigma_x: float = 1.0,
+    sigma_y: float = 1.0,
+    sigma_v: float = 1.0,
+    sigma_w: float = 1.0,
+    learning_rate: float = 0.1,
+) -> np.ndarray:
+    """
+    Probabilistic matrix factorization imputation method. Assumes that x is
+    zero-mean.
+
+    See also:
+        https://github.com/mcleonard/pmf-pytorch/blob/master/Probability%20Matrix%20Factorization.ipynb
+    """
+    n_samples, n_features = x.shape
+    x_true = torch.Tensor(x)
+    mask = 1 - torch.isnan(x_true).to(torch.float32)
+    x_true = torch.where(mask == 0, 0, x_true)
+    y = torch.normal(0, sigma_y, size=(latent_dim, n_samples))
+    v = torch.normal(0, sigma_v, size=(latent_dim, n_features))
+    w = torch.normal(0, sigma_w, size=(latent_dim, n_features))
+    y.requires_grad, v.requires_grad, w.requires_grad = True, True, True
+    lambda_y = (sigma_x / sigma_y) ** 2
+    lambda_v = (sigma_x / sigma_v) ** 2
+    lambda_w = (sigma_x / sigma_w) ** 2
+    optimizer = torch.optim.Adam([y, v, w], lr=learning_rate)
+    for _ in track(range(n_iter), "PMF imputation"):
+        iw = (w @ mask.t()) / mask.sum(-1)
+        u = y + iw
+        x_pred = u.t() @ v  # No sigmoid (for empirical reasons :P)
+        l = torch.sum(mask * (x_true - x_pred) ** 2)
+        ry = lambda_y * torch.norm(y, dim=1).sum()
+        rv = lambda_v * torch.norm(v, dim=1).sum()
+        rw = lambda_w * torch.norm(w, dim=1).sum()
+        loss = l + ry + rv + rw
+        optimizer.zero_grad()
+        loss.backward()
+        optimizer.step()
+    x_pred = (u.t() @ v).detach()
+    x_true = mask * x_true + (1 - mask) * x_pred
+    return x_true.numpy()
 
 
 def preprocess_dataframe(df: pd.DataFrame) -> pd.DataFrame:
@@ -333,7 +381,7 @@ def preprocess_dataframe(df: pd.DataFrame) -> pd.DataFrame:
         ),
     ]
     allergen_trasforms = [
-        ([allergen], MinMaxScaler()) for allergen in ALLERGENS
+        ([allergen], StandardScaler()) for allergen in ALLERGENS
     ]
     target_transforms = [
         ([target], FunctionTransformer())
