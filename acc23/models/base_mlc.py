@@ -1,6 +1,7 @@
 """Base class for multilabel classifiers"""
 
 from typing import Dict, Optional, Tuple
+import numpy as np
 import pytorch_lightning as pl
 
 import torch
@@ -63,14 +64,14 @@ class BaseMultilabelClassifier(pl.LightningModule):
         kw = {
             "y_true": y_true_np,
             "y_pred": y_pred_np,
-            "average": "samples",
+            "average": "macro",
             "zero_division": 0,
         }
         prec = precision_score(**kw)
         rec = recall_score(**kw)
-        f1 = f1_score(**kw)
+        f1s = f1_score(**kw)
         if stage is not None:
-            self.log(f"{stage}/f1", f1, sync_dist=True, prog_bar=True)
+            self.log(f"{stage}/f1", f1s, sync_dist=True, prog_bar=True)
             self.log_dict(
                 {
                     f"{stage}/loss": loss,
@@ -81,7 +82,14 @@ class BaseMultilabelClassifier(pl.LightningModule):
                 },
                 sync_dist=True,
             )
-        return loss, float(acc), float(ham), float(prec), float(rec), float(f1)
+        return (
+            loss,
+            float(acc),
+            float(ham),
+            float(prec),
+            float(rec),
+            float(f1s),
+        )
 
     def training_step(self, batch, *_, **__):
         x, y, img = batch
@@ -92,7 +100,7 @@ class BaseMultilabelClassifier(pl.LightningModule):
         return self.evaluate(x, y, img, "val")[0]
 
 
-def bp_mll_loss(y_pred: Tensor, y_true: Tensor) -> Tensor:
+def bp_mll_loss(y_pred: Tensor, y_true: Tensor, *_, **__) -> Tensor:
     """
     BM-MLL loss introduced in
 
@@ -118,10 +126,10 @@ def bp_mll_loss(y_pred: Tensor, y_true: Tensor) -> Tensor:
     #             assert a[i, j, k] == y_pred[i, j] - y_pred[i, k]
 
 
-def cf1(y_pred: Tensor, y_true: Tensor) -> Tensor:
+def cf1(y_pred: Tensor, y_true: Tensor, *_, **__) -> Tensor:
     """
     Home-baked continuous (and differentiable) analogue to the mean (or
-    sample-average) F1 score.
+    macro-average) F1 score.
     """
     p, n = y_true, (1 - y_true)
     pp, pn = y_pred, (1 - y_pred)
@@ -130,3 +138,50 @@ def cf1(y_pred: Tensor, y_true: Tensor) -> Tensor:
     tp, fp, fn = tp.sum(dim=-1), fp.sum(dim=-1), fn.sum(dim=-1)
     nf1 = 2 * tp / (2 * tp + fp + fn)
     return nf1.mean()
+
+
+def f1(y_pred: np.ndarray, y_true: np.ndarray, *_, **__) -> np.ndarray:
+    """
+    Implementation of the F1 score as specified by the challenge organizers:
+
+        Let y_true (test labels) and y_pred (your predictions) be matrices with
+        the same dimensions, where the columns represent the individual classes
+        in a multi-label classification setting.
+
+        1/ we calculate mean precision (P) and mean recall (R) for each column
+        i:
+
+            P(i) = mean(sum(y_true(i) * y_pred(i)) / (sum(y_pred(i)) + 1e-10))
+            R(i) = mean(sum(y_true(i) * y_pred(i)) / (sum(y_true(i)) + 1e-10))
+
+        2/ we calculate the F1 score for each column i using the formula:
+
+            F1(i) = 2 * P(i) * R(i) / (P(i) + R(i) + 1e-10)
+
+        3/ we compute the mean F1 score across all columns:
+
+            mean_F1 = mean(F1(i)) for all i
+
+        This mean_F1 value is the score.
+
+    After experimentation, this seems to correspond to
+    `sklearn.metrics.f1_score` with `average=macro`:
+
+        import numpy as np
+        from sklearn.metrics import f1_score
+        from acc23.models.base_mlc import f1
+
+        y_true = np.random.uniform(0, 1, [100, 20]) > .5
+        y_pred = np.random.uniform(0, 1, [100, 20]) > .5
+
+        for a in ["micro", "macro", "samples", "weighted"]:
+            print(
+                "sklearn.metrics.f1_score with average =", a,
+                f1_score(y_true, y_pred, average=a)
+            )
+        print("Challenge implementation", f1(y_pred, y_true))
+    """
+    a, b, c = y_true.sum(0), y_pred.sum(0), (y_true * y_pred).sum(0)
+    p, r = c / (b + 1e-10), c / (a + 1e-10)
+    f = 2 * p * r / (p + r + 1e-10)
+    return f.mean()
