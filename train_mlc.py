@@ -30,7 +30,7 @@ def main():
         name=name,
         early_stopping_kwargs={
             "monitor": "val/f1",
-            "patience": 15,
+            "patience": 20,
             "mode": "max",
         },
     )
