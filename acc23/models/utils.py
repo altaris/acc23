@@ -149,7 +149,7 @@ class ResNetLinearLayer(nn.Module):
 
     linear: nn.Module
     residual: nn.Module
-    activation: nn.Module
+    last_activation: nn.Module
 
     def __init__(
         self,
@@ -157,11 +157,12 @@ class ResNetLinearLayer(nn.Module):
         out_features: int,
         latent_features: Optional[int] = None,
         activation: str = "relu",
+        last_activation: str = "relu",
         **kwargs,
     ) -> None:
         super().__init__(**kwargs)
         latent_features = latent_features or out_features
-        self.activation = get_activation(activation)
+        self.last_activation = get_activation(last_activation)
         self.linear = nn.Sequential(
             nn.Linear(in_features, latent_features),
             nn.BatchNorm1d(latent_features),
@@ -179,7 +180,7 @@ class ResNetLinearLayer(nn.Module):
         """Override"""
         a = self.linear(x)
         b = self.residual(x)
-        return self.activation(a + b)
+        return self.last_activation(a + b)
 
 
 def basic_encoder(

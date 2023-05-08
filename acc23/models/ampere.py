@@ -73,7 +73,7 @@ class Ampere(BaseMultilabelClassifier):
             ResNetLinearLayer(512, 256),
             ResNetLinearLayer(256, 256),
             ResNetLinearLayer(256, 64),
-            ResNetLinearLayer(64, N_TARGETS, activation="sigmoid"),
+            ResNetLinearLayer(64, N_TARGETS, last_activation="sigmoid"),
         )
         # self._module_c = linear_chain(
         #     512 + encoded_dim,
