@@ -4,20 +4,20 @@ model to a submittable csv file
 """
 __docformat__ = "google"
 
+import json
 from pathlib import Path
 from typing import Union
-import requests
 
 import pandas as pd
+import requests
 import torch
+from loguru import logger as logging
 from rich.progress import track
 from torch import Tensor, nn
 from torch.utils.data import DataLoader
 
-from loguru import logger as logging
-
-from acc23.dataset import ACCDataset
 from acc23.constants import TARGETS
+from acc23.dataset import ACCDataset
 
 
 def evaluate_on_test_dataset(
@@ -130,7 +130,11 @@ def submit_to_trustii(
         endpoint_url, headers=headers, files=data, timeout=100
     )
     if response.status_code == 200:
-        logging.success("Submitted: {}", response.text)
+        logging.success("Predictions submitted")
+        document = json.loads(response.text)
+        scores = document["data"]["publicScore"]
+        for k in sorted(list(scores.keys())):
+            logging.info("{}: {}", k, scores[k])
     else:
         logging.error(
             "Submission failed: {} {}", response.status_code, response.text
