@@ -72,7 +72,7 @@ class Citrus(BaseMultilabelClassifier):
             ResNetLinearLayer(2 * encoded_dim, 512),
             ResNetLinearLayer(512, 128),
             ResNetLinearLayer(128, 64),
-            ResNetLinearLayer(64, N_TARGETS, activation="sigmoid"),
+            ResNetLinearLayer(64, N_TARGETS, last_activation="sigmoid"),
         )
         # self._module_d = nn.Sequential(
         #     nn.Linear(2 * encoded_dim, encoded_dim),

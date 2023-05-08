@@ -64,7 +64,7 @@ class Dexter(BaseMultilabelClassifier):
             ResNetLinearLayer(2 * d, d),
             ResNetLinearLayer(d, 128),
             ResNetLinearLayer(128, 64),
-            ResNetLinearLayer(64, N_TARGETS, activation="sigmoid"),
+            ResNetLinearLayer(64, N_TARGETS, last_activation="sigmoid"),
         )
         # self._module_b = linear_chain(
         #     2 * d,
