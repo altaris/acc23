@@ -1,6 +1,6 @@
 """Base class for multilabel classifiers"""
 
-from typing import Dict, Optional, Tuple
+from typing import Dict, Optional, Tuple, Union
 import numpy as np
 import pytorch_lightning as pl
 
@@ -54,24 +54,26 @@ class BaseMultilabelClassifier(pl.LightningModule):
         y_pred = self(x, img)
         y_true_np = y_true.cpu().detach().numpy()
         y_pred_np = y_pred.cpu().detach().numpy() > 0.5
-        w = 0.5
-        loss = nn.functional.mse_loss(y_pred, y_true) - w * cf1(y_pred, y_true)
-        # loss = nn.functional.binary_cross_entropy(y_pred, y_true) - w * cf1(
-        #     y_pred, y_true
-        # )
+        w = 1
+        loss = (
+            nn.functional.mse_loss(y_pred, y_true)
+            # nn.functional.binary_cross_entropy(y_pred, y_true)
+            # + continuous_hamming_loss(y_pred, y_true)
+            - w * continuous_f1_score(y_pred, y_true)
+        )
         acc = accuracy_score(y_true_np, y_pred_np)
         ham = hamming_loss(y_true_np, y_pred_np)
         kw = {
             "y_true": y_true_np,
             "y_pred": y_pred_np,
-            "average": "macro",
+            "average": "samples",
             "zero_division": 0,
         }
         prec = precision_score(**kw)
         rec = recall_score(**kw)
-        f1s = f1_score(**kw)
+        f1 = f1_score(**kw)
         if stage is not None:
-            self.log(f"{stage}/f1", f1s, sync_dist=True, prog_bar=True)
+            self.log(f"{stage}/f1", f1, sync_dist=True, prog_bar=True)
             self.log_dict(
                 {
                     f"{stage}/loss": loss,
@@ -88,7 +90,7 @@ class BaseMultilabelClassifier(pl.LightningModule):
             float(ham),
             float(prec),
             float(rec),
-            float(f1s),
+            float(f1),
         )
 
     def training_step(self, batch, *_, **__):
@@ -126,21 +128,23 @@ def bp_mll_loss(y_pred: Tensor, y_true: Tensor, *_, **__) -> Tensor:
     #             assert a[i, j, k] == y_pred[i, j] - y_pred[i, k]
 
 
-def cf1(y_pred: Tensor, y_true: Tensor, *_, **__) -> Tensor:
+def continuous_hamming_loss(
+    y_pred: Tensor, y_true: Tensor, *_, **__
+) -> Tensor:
     """
-    Home-baked continuous (and differentiable) analogue to the mean (or
-    macro-average) F1 score.
+    Continuous (and differentiable) version of the Hamming loss. The (discrete)
+    Hamming loss is the fraction of labels that are incorrectly predicted.
     """
-    p, n = y_true, (1 - y_true)
-    pp, pn = y_pred, (1 - y_pred)
-    tp, fp, fn = p * pp, n * pp, p * pn
-    tp, fp, fn = tp**2, fp**2, fn**2
-    tp, fp, fn = tp.sum(dim=-1), fp.sum(dim=-1), fn.sum(dim=-1)
-    nf1 = 2 * tp / (2 * tp + fp + fn)
-    return nf1.mean()
+    h = (1 - y_true) * y_pred + y_true * (1 - y_pred)
+    return h.mean()
 
 
-def f1(y_pred: np.ndarray, y_true: np.ndarray, *_, **__) -> np.ndarray:
+def continuous_f1_score(
+    y_pred: Union[np.ndarray, Tensor],
+    y_true: Union[np.ndarray, Tensor],
+    *_,
+    **__,
+) -> Union[np.ndarray, Tensor]:
     """
     Implementation of the F1 score as specified by the challenge organizers:
 
@@ -179,9 +183,9 @@ def f1(y_pred: np.ndarray, y_true: np.ndarray, *_, **__) -> np.ndarray:
                 "sklearn.metrics.f1_score with average =", a,
                 f1_score(y_true, y_pred, average=a)
             )
-        print("Challenge implementation", f1(y_pred, y_true))
+        print("Challenge implementation", continuous_f1_score(y_pred, y_true))
     """
-    a, b, c = y_true.sum(0), y_pred.sum(0), (y_true * y_pred).sum(0)
-    p, r = c / (b + 1e-10), c / (a + 1e-10)
-    f = 2 * p * r / (p + r + 1e-10)
+    ts, ps, tp = y_true.sum(0), y_pred.sum(0), (y_true * y_pred).sum(0)
+    pr, re = tp / (ps + 1e-10), tp / (ts + 1e-10)
+    f = 2 * pr * re / (pr + re + 1e-10)
     return f.mean()
