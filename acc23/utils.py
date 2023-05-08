@@ -245,7 +245,11 @@ def train_model(
         callbacks=[
             pl.callbacks.EarlyStopping(**early_stopping_kwargs),
             # pl.callbacks.LearningRateMonitor("epoch"),
-            pl.callbacks.ModelCheckpoint(save_weights_only=True),
+            pl.callbacks.ModelCheckpoint(
+                mode=early_stopping_kwargs.get("mode", "min"),
+                monitor=early_stopping_kwargs["monitor"],
+                save_weights_only=True,
+            ),
             pl.callbacks.RichProgressBar(),
             # pl.callbacks.BatchSizeFinder(),
             *additional_callbacks,
