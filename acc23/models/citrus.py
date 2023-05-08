@@ -15,7 +15,6 @@ from .utils import (
     ResNetLinearLayer,
     basic_encoder,
     concat_tensor_dict,
-    linear_chain,
 )
 from .base_mlc import BaseMultilabelClassifier
 
@@ -70,7 +69,8 @@ class Citrus(BaseMultilabelClassifier):
         )
         self._module_d = nn.Sequential(
             ResNetLinearLayer(2 * encoded_dim, 512),
-            ResNetLinearLayer(512, 128),
+            ResNetLinearLayer(512, 256),
+            ResNetLinearLayer(256, 128),
             ResNetLinearLayer(128, 64),
             ResNetLinearLayer(64, N_TARGETS, last_activation="sigmoid"),
         )
