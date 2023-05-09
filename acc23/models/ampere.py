@@ -35,18 +35,15 @@ class Ampere(BaseMultilabelClassifier):
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
         self.save_hyperparameters()
-        # self._module_a = linear_chain(
-        #     N_FEATURES, [256, 512], activation="relu", last_activation="relu"
-        # )
         self._module_b, encoded_dim = resnet_encoder(
             N_CHANNELS,
             [
-                16,  # IMAGE_RESIZE_TO = 512 -> 256
-                16,  # -> 128
+                8,  # IMAGE_RESIZE_TO = 512 -> 256
+                8,  # -> 128
                 16,  # -> 64
-                32,  # -> 32
+                16,  # -> 32
                 32,  # -> 16
-                64,  # -> 8
+                32,  # -> 8
                 64,  # -> 4
                 128,  # -> 2
                 256,  # -> 1
@@ -62,28 +59,26 @@ class Ampere(BaseMultilabelClassifier):
         )
         self._module_a = nn.Sequential(
             ResNetLinearLayer(N_FEATURES, 256),
-            ResNetLinearLayer(256, 256),
-            ResNetLinearLayer(256, 256),
-            ResNetLinearLayer(256, 256),
             ResNetLinearLayer(256, encoded_dim),
+            ResNetLinearLayer(encoded_dim, encoded_dim),
+            ResNetLinearLayer(encoded_dim, encoded_dim),
+            ResNetLinearLayer(encoded_dim, encoded_dim),
         )
         self._module_c = nn.Sequential(
             ResNetLinearLayer(2 * encoded_dim, 512),
+            ResNetLinearLayer(512, 512),
+            ResNetLinearLayer(512, 512),
+            ResNetLinearLayer(512, 512),
             ResNetLinearLayer(512, 256),
+            ResNetLinearLayer(256, 256),
             ResNetLinearLayer(256, 256),
             ResNetLinearLayer(256, 256),
             ResNetLinearLayer(256, 64),
             ResNetLinearLayer(64, N_TARGETS, last_activation="sigmoid"),
         )
-        for p in self.parameters():
-            if p.ndim >= 2:
-                torch.nn.init.xavier_normal_(p)
-        # self._module_c = linear_chain(
-        #     512 + encoded_dim,
-        #     [512, 128, 64, N_TARGETS],
-        #     activation="relu",
-        #     last_activation="sigmoid",
-        # )
+        # for p in self.parameters():
+        #     if p.ndim >= 2:
+        #         torch.nn.init.xavier_normal_(p)
         self.example_input_array = (
             torch.zeros((32, N_FEATURES)),
             torch.zeros((32, N_CHANNELS, IMAGE_RESIZE_TO, IMAGE_RESIZE_TO)),

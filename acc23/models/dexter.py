@@ -6,21 +6,17 @@ exists though.
 """
 __docformat__ = "google"
 
-from pathlib import Path
 from typing import Dict, Union
-from loguru import logger as logging
 
 import torch
 from torch import Tensor, nn
 from traitlets import Any
 
-from acc23.constants import IMAGE_RESIZE_TO, N_CHANNELS, N_FEATURES, N_TARGETS
+from acc23.constants import N_FEATURES, N_TARGETS
 
-from .autoencoder import Autoencoder
 from .utils import (
     ResNetLinearLayer,
     concat_tensor_dict,
-    linear_chain,
 )
 from .base_mlc import BaseMultilabelClassifier
 
@@ -31,50 +27,36 @@ class Dexter(BaseMultilabelClassifier):
     _module_a: nn.Module  # Input dense branch
     _module_b: nn.Module  # Merge branch
 
-    _autoencoder: Autoencoder
-
     def __init__(
         self,
-        autoencoder_ckpt_path: Union[str, Path],
+        ae_latent_dim: int,
         **kwargs: Any,
     ) -> None:
         super().__init__(**kwargs)
         self.save_hyperparameters()
-        logging.debug(
-            "Loading autoencoder from checkpoint '{}'", autoencoder_ckpt_path
-        )
-        self._autoencoder = Autoencoder.load_from_checkpoint(
-            autoencoder_ckpt_path
-        )
-        self._autoencoder.freeze()
-        d = self._autoencoder.hparams["latent_space_dim"]
-        logging.debug("Dexter's autoencoder latent space dimension: {}", d)
-        # self._module_a = linear_chain(N_FEATURES, [d], "relu")
-        # self._module_a = nn.Sequential(
-        #     ResNetLinearLayer(N_FEATURES, 256),
-        #     ResNetLinearLayer(256, d),
-        # )
         self._module_a = nn.Sequential(
             ResNetLinearLayer(N_FEATURES, 256),
-            ResNetLinearLayer(256, 256),
             ResNetLinearLayer(256, 512),
-            ResNetLinearLayer(512, d),
+            ResNetLinearLayer(512, 512),
+            ResNetLinearLayer(512, 512),
+            ResNetLinearLayer(512, 512),
+            ResNetLinearLayer(512, ae_latent_dim),
         )
         self._module_b = nn.Sequential(
-            ResNetLinearLayer(2 * d, d),
-            ResNetLinearLayer(d, 128),
+            ResNetLinearLayer(2 * ae_latent_dim, ae_latent_dim),
+            ResNetLinearLayer(ae_latent_dim, ae_latent_dim),
+            ResNetLinearLayer(ae_latent_dim, ae_latent_dim),
+            ResNetLinearLayer(ae_latent_dim, ae_latent_dim),
+            ResNetLinearLayer(ae_latent_dim, 128),
+            ResNetLinearLayer(128, 128),
+            ResNetLinearLayer(128, 128),
+            ResNetLinearLayer(128, 128),
             ResNetLinearLayer(128, 64),
             ResNetLinearLayer(64, N_TARGETS, last_activation="sigmoid"),
         )
-        # self._module_b = linear_chain(
-        #     2 * d,
-        #     [d, 128, 64, N_TARGETS],
-        #     activation="relu",
-        #     last_activation="sigmoid",
-        # )
         self.example_input_array = (
             torch.zeros((32, N_FEATURES)),
-            torch.zeros((32, N_CHANNELS, IMAGE_RESIZE_TO, IMAGE_RESIZE_TO)),
+            torch.zeros((32, ae_latent_dim)),
         )
         self.forward(*self.example_input_array)
 
@@ -91,7 +73,6 @@ class Dexter(BaseMultilabelClassifier):
         x = x.float().to(self.device)  # type: ignore
         img = img.to(self.device)  # type: ignore
         a = self._module_a(x)
-        l = self._autoencoder.encode(img)
-        al = torch.concatenate([a, l], dim=-1)
-        b = self._module_b(al)
+        ai = torch.concatenate([a, img], dim=-1)
+        b = self._module_b(ai)
         return b

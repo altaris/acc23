@@ -2,26 +2,30 @@
 """Script to train acc23's current model implementation"""
 
 from datetime import datetime
-from pathlib import Path
+
 from loguru import logger as logging
 
 from acc23.dataset import ACCDataset
-from acc23.models import Ampere as Model
-# from acc23.models import Dexter as Model
-from acc23.utils import last_checkpoint_path, train_model
+from acc23.models import Ampere as Model  # SET CORRECT MODEL CLASS HERE
 from acc23.postprocessing import evaluate_on_test_dataset
+from acc23.utils import last_checkpoint_path, train_model
 
 
 def main():
-    ds = ACCDataset("data/train.csv", "data/images")
+
+    name = Model.__name__.lower()
+    if name == "dexter":
+        # Model requires autoencoder
+        # TODO: Could read latent dim from hparams.yaml
+        model = Model(ae_latent_dim=128)
+        ae_ckpt = last_checkpoint_path(
+            "out/tb_logs/autoencoder/version_1/checkpoints/"
+        )
+    else:
+        model, ae_ckpt = Model(), None
+
+    ds = ACCDataset("data/train.csv", "data/images", autoencoder_ckpt=ae_ckpt)
     train, val = ds.test_train_split_dl()
-    model = Model()
-    # model = Model(
-    #     last_checkpoint_path(
-    #         Path("out/tb_logs/autoencoder/version_6/checkpoints")
-    #     )
-    # )
-    name = model.__class__.__name__.lower()
     model = train_model(
         model,
         train,
@@ -34,7 +38,8 @@ def main():
             "mode": "max",
         },
     )
-    df = evaluate_on_test_dataset(model, "data/test.csv", "data/images")
+
+    df = evaluate_on_test_dataset(model, "data/test.csv", "data/images", ae_ckpt)
     dt = datetime.now().strftime("%Y-%m-%d-%H-%M")
     path = f"out/{dt}.{name}.csv"
     df.to_csv(path, index=False)

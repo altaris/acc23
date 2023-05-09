@@ -6,7 +6,7 @@ __docformat__ = "google"
 
 import json
 from pathlib import Path
-from typing import Union
+from typing import Optional, Union
 
 import pandas as pd
 import requests
@@ -24,13 +24,16 @@ def evaluate_on_test_dataset(
     model: nn.Module,
     csv_file_path: Union[str, Path],
     image_dir_path: Union[str, Path],
+    autoencoder_ckpt: Optional[Union[str, Path]] = None,
     batch_size: int = 32,
 ) -> pd.DataFrame:
     """
     Evaluates a model on a dataset, and returns a submittable dataframe (with
     all the target columns and the `trustii_id` column).
     """
-    ds = ACCDataset(csv_file_path, image_dir_path)
+    ds = ACCDataset(
+        csv_file_path, image_dir_path, autoencoder_ckpt=autoencoder_ckpt
+    )
     dl = DataLoader(ds, batch_size=batch_size)
     with torch.no_grad():
         y = [model(x, img) for x, _, img in track(dl, "Evaluating...")]

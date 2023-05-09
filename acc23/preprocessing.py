@@ -12,14 +12,23 @@ from PIL import Image
 from rich.progress import track
 from sklearn.base import TransformerMixin
 from sklearn.impute import SimpleImputer
-from sklearn.preprocessing import (FunctionTransformer, MinMaxScaler,
-                                   MultiLabelBinarizer, StandardScaler)
+from sklearn.preprocessing import (
+    FunctionTransformer,
+    MinMaxScaler,
+    MultiLabelBinarizer,
+    StandardScaler,
+)
 from sklearn_pandas import DataFrameMapper
 from sklearn_pandas.pipeline import make_transformer_pipeline
 from torchvision.transforms.functional import resize
 
-from acc23.constants import (ALLERGENS, CLASSES, IMAGE_RESIZE_TO, N_CHANNELS,
-                             TARGETS)
+from acc23.constants import (
+    ALLERGENS,
+    CLASSES,
+    IMAGE_RESIZE_TO,
+    N_CHANNELS,
+    TARGETS,
+)
 
 
 class MultiLabelSplitBinarizer(TransformerMixin):
@@ -128,7 +137,7 @@ def impute_dataframe(df: pd.DataFrame) -> pd.DataFrame:
     a = df[ALLERGENS].to_numpy()
     df[ALLERGENS] = pmf_impute(a, 30)
 
-    # Simple imputations
+    # Simple imputations
     imputers = [
         (["Age"], SimpleImputer()),
         (["Gender"], SimpleImputer(strategy="most_frequent")),

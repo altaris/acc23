@@ -9,6 +9,7 @@ from typing import Callable, Optional, Tuple, Union
 import pandas as pd
 import torch
 from torch.utils.data import DataLoader, Dataset
+from acc23.autoencoder import Autoencoder
 
 from acc23.constants import IMAGE_RESIZE_TO, N_CHANNELS, TARGETS
 from acc23.preprocessing import load_csv, load_image
@@ -26,12 +27,14 @@ class ACCDataset(Dataset):
     image_dir_path: Path
     data: pd.DataFrame
     image_transform: Transform_t
+    autoencoder: Optional[Autoencoder]
 
     def __init__(
         self,
         csv_file_path: Union[str, Path],
         image_dir_path: Union[str, Path],
         image_transform: Optional[Transform_t] = None,
+        autoencoder_ckpt: Optional[Union[str, Path]] = None,
     ):
         """
         Args:
@@ -42,11 +45,23 @@ class ACCDataset(Dataset):
                 to apply to the images. Note that images are already resized to
                 `constants.IMAGE_RESIZE_TO` and rescales to $[0, 1]$ before
                 `image_transform` can touch them.
+            autoencoder_ckpt (Optional[Union[str, Path]]): Path to a
+                `acc23.autoencoder.Autoencoder`. If specified, images will be
+                encoded through the autoencoder in `__getitem__`, i.e. models
+                trained on this dataset will receive encoded images.
         """
         self.csv_file_path = Path(csv_file_path)
         self.image_dir_path = Path(image_dir_path)
         self.data = load_csv(csv_file_path)
         self.image_transform = image_transform or (lambda x: x)
+        if autoencoder_ckpt:
+            self.autoencoder = Autoencoder.load_from_checkpoint(
+                str(autoencoder_ckpt)
+            )
+            self.autoencoder.eval()
+            self.autoencoder.freeze()  # Necessary?
+        else:
+            self.autoencoder = None
 
     def __len__(self) -> int:
         return len(self.data)
@@ -65,6 +80,9 @@ class ACCDataset(Dataset):
         except:
             img = torch.zeros((N_CHANNELS, IMAGE_RESIZE_TO, IMAGE_RESIZE_TO))
         img = self.image_transform(img)
+        if self.autoencoder is not None:
+            # TODO: Super inefficient lol
+            img = self.autoencoder.encode(img.unsqueeze(0))[0]
         return x, y, img
 
     def test_train_split_dl(

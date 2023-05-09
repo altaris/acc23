@@ -8,10 +8,10 @@ from typing import Any, List, Optional, Tuple
 import pytorch_lightning as pl
 import torch
 from torch import Tensor, nn
+from transformers.activations import get_activation
 
 from acc23.constants import IMAGE_RESIZE_TO, N_CHANNELS
-
-from .utils import resnet_decoder, resnet_encoder
+from acc23.models.utils import resnet_decoder, resnet_encoder
 
 
 class Autoencoder(pl.LightningModule):
@@ -27,12 +27,14 @@ class Autoencoder(pl.LightningModule):
         self,
         out_channels: List[int],
         latent_space_dim: int = 512,
-        n_blocks: int = 1,
         input_shape: Tuple[int, int, int] = (
             N_CHANNELS,
             IMAGE_RESIZE_TO,
             IMAGE_RESIZE_TO,
         ),
+        n_blocks: int = 1,
+        activation: str = "gelu",
+        last_decoder_activation: str = "sigmoid",
     ) -> None:
         # TODO: assert that the input shape is square
         super().__init__()
@@ -43,20 +45,29 @@ class Autoencoder(pl.LightningModule):
             out_channels,
             input_size=input_shape[1],
             n_blocks=n_blocks,
+            activation=activation,
         )
-        self._encoder.append(nn.Linear(latent_image_dim, latent_space_dim))
+        self._encoder.append(
+            nn.Linear(latent_image_dim, latent_space_dim, bias=False)
+        )
         a = out_channels[-1]
         b = int(input_shape[1] / (2 ** len(out_channels)))
         self._latent_image_shape = (a, b, b)
 
         self._decoder_a = nn.Sequential(
             nn.Linear(latent_space_dim, latent_image_dim),
-            nn.ReLU(),
+            get_activation(activation),
         )
         c = list(reversed([input_shape[0], *out_channels]))
-        self._decoder_b = resnet_decoder(c[0], c[1:], n_blocks=n_blocks)
+        self._decoder_b = resnet_decoder(
+            c[0],
+            c[1:],
+            n_blocks=n_blocks,
+            activation=activation,
+            last_activation=last_decoder_activation,
+        )
 
-        self.example_input_array = torch.zeros((1, *input_shape))
+        self.example_input_array = torch.zeros((32, *input_shape))
         self.forward(self.example_input_array)
 
     def configure_optimizers(self) -> Any:
