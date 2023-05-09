@@ -12,7 +12,7 @@ from acc23.constants import IMAGE_RESIZE_TO, N_CHANNELS, N_FEATURES, N_TARGETS
 
 from .utils import (
     ResNetLinearLayer,
-    basic_encoder,
+    resnet_encoder,
     concat_tensor_dict,
 )
 from .base_mlc import BaseMultilabelClassifier
@@ -23,13 +23,13 @@ class Bastet(BaseMultilabelClassifier):
 
     _module_a: nn.Module  # Dense input branch
     _module_b: nn.Module  # Conv. input branch
-    _module_c: nn.Module  # Merge branch: transformer
-    _module_d: nn.Module  # Merge branch: output
+    _module_d: nn.Module  # Merge branch: transformer
+    _module_e: nn.Module  # Merge branch: output
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
         self.save_hyperparameters()
-        self._module_b, encoded_dim = basic_encoder(
+        self._module_b, encoded_dim = resnet_encoder(
             N_CHANNELS,
             [
                 8,  # IMAGE_RESIZE_TO = 512 -> 256
@@ -54,26 +54,23 @@ class Bastet(BaseMultilabelClassifier):
         self._module_a = nn.Sequential(
             ResNetLinearLayer(N_FEATURES, 256),
             ResNetLinearLayer(256, 256),
+            ResNetLinearLayer(256, 256),
             ResNetLinearLayer(256, 512),
+            ResNetLinearLayer(512, 512),
+            ResNetLinearLayer(512, 512),
             ResNetLinearLayer(512, encoded_dim),
         )
-        self._module_c = nn.Transformer(
+        self._module_c = ResNetLinearLayer(2 * encoded_dim, encoded_dim)
+        self._module_d = nn.Transformer(
             d_model=encoded_dim,
             nhead=8,
             batch_first=True,
             num_encoder_layers=6,
             num_decoder_layers=6,
         )
-        # self._module_d = linear_chain(
-        #     encoded_dim,
-        #     [256, 64, N_TARGETS],
-        #     activation="relu",
-        #     last_activation="sigmoid",
-        # )
-        self._module_d = nn.Sequential(
+        self._module_e = nn.Sequential(
             ResNetLinearLayer(encoded_dim, 256),
-            ResNetLinearLayer(256, 128),
-            ResNetLinearLayer(128, 64),
+            ResNetLinearLayer(256, 64),
             ResNetLinearLayer(64, N_TARGETS, last_activation="sigmoid"),
         )
         self.example_input_array = (
@@ -96,6 +93,8 @@ class Bastet(BaseMultilabelClassifier):
         img = img.to(self.device)  # type: ignore
         a = self._module_a(x)
         b = self._module_b(img)
-        c = self._module_c(b, a)
-        d = self._module_d(c)
-        return d
+        ab = torch.concatenate([a, b], dim=-1)
+        c = self._module_c(ab)
+        d = self._module_d(c, a)
+        e = self._module_e(d)
+        return e

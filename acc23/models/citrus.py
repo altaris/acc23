@@ -74,14 +74,6 @@ class Citrus(BaseMultilabelClassifier):
             ResNetLinearLayer(128, 64),
             ResNetLinearLayer(64, N_TARGETS, last_activation="sigmoid"),
         )
-        # self._module_d = nn.Sequential(
-        #     nn.Linear(2 * encoded_dim, encoded_dim),
-        #     nn.ReLU(),
-        #     nn.Linear(encoded_dim, 128),
-        #     nn.ReLU(),
-        #     nn.Linear(128, N_TARGETS),
-        #     nn.Sigmoid(),
-        # )
         self.example_input_array = (
             torch.zeros((32, N_FEATURES)),
             torch.zeros((32, N_CHANNELS, IMAGE_RESIZE_TO, IMAGE_RESIZE_TO)),

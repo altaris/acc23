@@ -9,7 +9,7 @@ import torch
 from loguru import logger as logging
 from torch.utils.data import DataLoader, Dataset
 
-from acc23.models import Autoencoder
+from acc23.autoencoder import Autoencoder
 from acc23.utils import train_model
 from acc23.preprocessing import load_image
 
@@ -109,23 +109,18 @@ def main():
     train, val = ds.test_train_split_dl()
     model = Autoencoder(
         out_channels=[
-            16,  # IMAGE_RESIZE_TO = 512 -> 256
-            16,  # -> 128
+            8,  # IMAGE_RESIZE_TO = 512 -> 256
+            8,  # -> 128
             16,  # -> 64
-            32,  # -> 32
+            16,  # -> 32
             32,  # -> 16
-            64,  # -> 8
+            32,  # -> 8
             64,  # -> 4
+            64,  # -> 2
+            128,  # -> 1
         ],
-        # out_channels=[
-        #     8,  # IMAGE_RESIZE_TO = 128 -> 64
-        #     16,  # -> 32
-        #     32,  # -> 16
-        #     64,  # -> 8
-        #     64,  # -> 4
-        # ],
-        n_blocks=4,
-        latent_space_dim=256,
+        n_blocks=1,
+        latent_space_dim=128,
     )
     name = model.__class__.__name__.lower()
     train_model(model, train, val, root_dir="out", name=name)

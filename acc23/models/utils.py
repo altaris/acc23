@@ -30,7 +30,7 @@ class ResNetConvTransposeLayer(nn.Module):
         self,
         in_channels: int,
         out_channels: int,
-        activation: str = "relu",
+        activation: str = "gelu",
     ):
         super().__init__()
         self.convolution = nn.ConvTranspose2d(
@@ -121,7 +121,7 @@ class ResNetEncoderLayer(nn.Module):
         in_channels: int,
         out_channels: int,
         n_blocks: int = 1,
-        activation: str = "relu",
+        activation: str = "gelu",
         **kwargs,
     ) -> None:
         super().__init__(**kwargs)
@@ -156,8 +156,8 @@ class ResNetLinearLayer(nn.Module):
         in_features: int,
         out_features: int,
         latent_features: Optional[int] = None,
-        activation: str = "relu",
-        last_activation: str = "relu",
+        activation: str = "gelu",
+        last_activation: str = "gelu",
         **kwargs,
     ) -> None:
         super().__init__(**kwargs)
@@ -186,16 +186,14 @@ class ResNetLinearLayer(nn.Module):
 def basic_encoder(
     in_channels: int,
     out_channels: List[int],
-    activation: str = "relu",
+    activation: str = "gelu",
     input_size: int = IMAGE_RESIZE_TO,
 ) -> Tuple[nn.Sequential, int]:
     """
     Basic image encoder that is just a succession of (non skipped) downsampling
-    blocks, followed by a final flatten layer. A block is made of
-    1. a convolution layer which cuts the inputs' height and width by half,
-    2. a batch normalization layer, except for the first block,
-    3. a sigmoid activation.
-    In particular, the output images' size will be `input_size / (2 **
+    blocks, followed by a final flatten layer. A block is just a
+    `transformers.models.resnet.modeling_resnet.ResNetConvLayer`. In
+    particular, the output images' size will be `input_size / (2 **
     len(out_channels))`, and the output vector dimension will be
 
         out_channels[-1] * (input_size / (2 ** len(out_channels))) ** 2
@@ -255,12 +253,10 @@ def concat_tensor_dict(d: Dict[str, Tensor]) -> Tensor:
 def linear_chain(
     n_inputs: int,
     n_neurons: List[int],
-    activation: str = "sigmoid",
-    last_activation: str = "sigmoid",
+    activation: str = "gelu",
+    last_activation: str = "gelu",
 ) -> nn.Sequential:
-    """
-    A sequence of linear layers with sigmoid activation (including at the end).
-    """
+    """A sequence of linear layers."""
     n, module = [n_inputs] + n_neurons, nn.Sequential()
     for i in range(1, len(n)):
         module.append(nn.Linear(n[i - 1], n[i]))
@@ -315,7 +311,7 @@ def resnet_decoder(
 def resnet_encoder(
     in_channels: int,
     out_channels: List[int],
-    activation: str = "relu",
+    activation: str = "gelu",
     n_blocks: int = 1,
     input_size: int = IMAGE_RESIZE_TO,
 ) -> Tuple[nn.Sequential, int]:

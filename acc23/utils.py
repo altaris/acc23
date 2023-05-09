@@ -34,14 +34,14 @@ def best_device() -> str:
     return accelerator
 
 
-def last_checkpoint_path(checkpoints_dir_path: Path) -> Path:
+def last_checkpoint_path(ckpt_dir: Union[str, Path]) -> Path:
     """
     Finds the file path of the last Pytorch Lightning training checkpoint
     (`ckpt` file) in a given directory. The step count is considered, rather
     than the epoch count.
     """
     d, r = {}, r".*step=(\d+)\.ckpt"
-    for c in glob(str(checkpoints_dir_path / "*step=*.ckpt")):
+    for c in glob(str(Path(ckpt_dir) / "*step=*.ckpt")):
         m = re.match(r, c)
         if m:
             d[int(m.group(1))] = c
