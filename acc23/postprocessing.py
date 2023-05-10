@@ -17,23 +17,21 @@ from torch import Tensor, nn
 from torch.utils.data import DataLoader
 
 from acc23.constants import TARGETS
-from acc23.dataset import ACCDataset
+from acc23.dataset import ACCDataset, Transform_t
 
 
 def evaluate_on_test_dataset(
     model: nn.Module,
     csv_file_path: Union[str, Path],
     image_dir_path: Union[str, Path],
-    autoencoder_ckpt: Optional[Union[str, Path]] = None,
+    image_transform: Optional[Transform_t] = None,
     batch_size: int = 32,
 ) -> pd.DataFrame:
     """
     Evaluates a model on a dataset, and returns a submittable dataframe (with
     all the target columns and the `trustii_id` column).
     """
-    ds = ACCDataset(
-        csv_file_path, image_dir_path, autoencoder_ckpt=autoencoder_ckpt
-    )
+    ds = ACCDataset(csv_file_path, image_dir_path, image_transform)
     dl = DataLoader(ds, batch_size=batch_size)
     with torch.no_grad():
         y = [model(x, img) for x, _, img in track(dl, "Evaluating...")]
