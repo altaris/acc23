@@ -20,7 +20,7 @@ from sklearn.preprocessing import (
 )
 from sklearn_pandas import DataFrameMapper
 from sklearn_pandas.pipeline import make_transformer_pipeline
-from torchvision.transforms.functional import resize
+from torchvision.transforms.functional import normalize, pad, resize
 
 from acc23.constants import (
     ALLERGENS,
@@ -176,7 +176,7 @@ def impute_dataframe(df: pd.DataFrame) -> pd.DataFrame:
     return pd.DataFrame(data=x, columns=impute_columns + non_impute_columns)
 
 
-def load_csv(path: Union[str, Path]) -> pd.DataFrame:
+def load_csv(path: Union[str, Path], impute: bool = True) -> pd.DataFrame:
     """
     Opens a csv dataframe (presumable `data/train.csv` or `data/test.csv`),
     enforces adequate column types (see `get_dtypes`), and applies some
@@ -188,15 +188,16 @@ def load_csv(path: Union[str, Path]) -> pd.DataFrame:
     # Apparently typing 1 time isn't enough
     df = df.astype({c: t for c, t in dtypes.items() if c in df.columns})
     df = preprocess_dataframe(df)
-    df = impute_dataframe(df)
+    if impute:
+        df = impute_dataframe(df)
     return df
 
 
 def load_image(path: Union[str, Path]) -> torch.Tensor:
     """
     Convenience function to load an PNG or BMP image. The returned image tensor
-    has shape `(C, H, W)` (the torch/torchvision convention), values from `0`
-    to `1`, and dtype `float32`. Here, `C = constants.N_CHANNELS`, and `H = W =
+    has shape `(C, H, W)` (the torch/torchvision convention) and dtype
+    `float32`. Here, `C = constants.N_CHANNELS`, and `H = W =
     constants.IMAGE_RESIZE_TO`. In particular, the image is transposed since
     Pillow uses a `(W, H, C)` convention.
     """
@@ -212,9 +213,13 @@ def load_image(path: Union[str, Path]) -> torch.Tensor:
     arr = torch.Tensor(np.asarray(img))  # (W, H, C)
     arr = arr.permute(2, 1, 0)  # (C, H, W)
     arr = arr.to(torch.float32)
-    arr -= arr.min()
-    arr /= arr.max()
+    # arr -= arr.min()
+    # arr /= arr.max()
+    s = 1400
+    _, h, w = arr.shape
+    arr = pad(arr, (0, 0, s - w, s - h), float(arr.mean()))
     arr = resize(arr, (IMAGE_RESIZE_TO, IMAGE_RESIZE_TO), antialias=True)
+    arr = normalize(arr, [0] * N_CHANNELS, [1] * N_CHANNELS)
     return arr
 
 
@@ -289,6 +294,8 @@ def preprocess_dataframe(df: pd.DataFrame) -> pd.DataFrame:
     TODO: List all of them.
     """
     logging.debug("Preprocessing dataframe")
+
+    # General preprocessing
     general_transforms = [
         (
             ["Chip_Type"],
@@ -408,4 +415,20 @@ def preprocess_dataframe(df: pd.DataFrame) -> pd.DataFrame:
         general_transforms + allergen_trasforms + target_transforms,
         df_out=True,
     )
-    return mapper.fit_transform(df)
+    df = mapper.fit_transform(df)
+
+    # Global allergen scaling
+    # a = df[ALLERGENS].to_numpy()
+    # nn = ~np.isnan(a)
+    # m, s = a.mean(where=nn), a.std(where=nn)
+    # df[ALLERGENS] = (df[ALLERGENS] - m) / (s + 1e-10)
+    # More specific transforms
+    for _, row in df.iterrows():
+        # Fix cofactors https://app.trustii.io/datasets/1439/forums/46/messages
+        cofactors = [row[f"General_cofactors_{i}"] for i in range(1, 13)]
+        if sum(cofactors) - cofactors[8] > 0 and cofactors[8] == 1:
+            # Cofactor 9 (unknown) appears in a list of several cofactors
+            # -> cofactor 9 should be 0 and cofactor 10 should be 1 instead
+            row["General_cofactors_9"], row["General_cofactors_10"] = 0, 1
+
+    return df
