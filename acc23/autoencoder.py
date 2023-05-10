@@ -33,7 +33,7 @@ class Autoencoder(pl.LightningModule):
             IMAGE_RESIZE_TO,
         ),
         n_blocks: int = 1,
-        activation: str = "gelu",
+        activation: str = "silu",
         last_decoder_activation: str = "sigmoid",
     ) -> None:
         # TODO: assert that the input shape is square

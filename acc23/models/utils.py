@@ -30,7 +30,7 @@ class ResNetConvTransposeLayer(nn.Module):
         self,
         in_channels: int,
         out_channels: int,
-        activation: str = "gelu",
+        activation: str = "silu",
     ):
         super().__init__()
         self.convolution = nn.ConvTranspose2d(
@@ -76,8 +76,8 @@ class ResNetDecoderLayer(nn.Module):
         in_channels: int,
         out_channels: int,
         n_blocks: int = 1,
-        activation: str = "gelu",
-        last_activation: str = "gelu",
+        activation: str = "silu",
+        last_activation: str = "silu",
         **kwargs,
     ) -> None:
         super().__init__(**kwargs)
@@ -121,7 +121,7 @@ class ResNetEncoderLayer(nn.Module):
         in_channels: int,
         out_channels: int,
         n_blocks: int = 1,
-        activation: str = "gelu",
+        activation: str = "silu",
         **kwargs,
     ) -> None:
         super().__init__(**kwargs)
@@ -156,8 +156,8 @@ class ResNetLinearLayer(nn.Module):
         in_features: int,
         out_features: int,
         latent_features: Optional[int] = None,
-        activation: str = "gelu",
-        last_activation: str = "gelu",
+        activation: str = "silu",
+        last_activation: str = "silu",
         **kwargs,
     ) -> None:
         super().__init__(**kwargs)
@@ -186,7 +186,7 @@ class ResNetLinearLayer(nn.Module):
 def basic_encoder(
     in_channels: int,
     out_channels: List[int],
-    activation: str = "gelu",
+    activation: str = "silu",
     input_size: int = IMAGE_RESIZE_TO,
 ) -> Tuple[nn.Sequential, int]:
     """
@@ -253,8 +253,8 @@ def concat_tensor_dict(d: Dict[str, Tensor]) -> Tensor:
 def linear_chain(
     n_inputs: int,
     n_neurons: List[int],
-    activation: str = "gelu",
-    last_activation: str = "gelu",
+    activation: str = "silu",
+    last_activation: str = "silu",
 ) -> nn.Sequential:
     """A sequence of linear layers."""
     n, module = [n_inputs] + n_neurons, nn.Sequential()
@@ -269,7 +269,7 @@ def linear_chain(
 def resnet_decoder(
     in_channels: int,
     out_channels: List[int],
-    activation: str = "gelu",
+    activation: str = "silu",
     last_activation: str = "sigmoid",
     n_blocks: int = 1,
 ) -> nn.Sequential:
@@ -311,7 +311,7 @@ def resnet_decoder(
 def resnet_encoder(
     in_channels: int,
     out_channels: List[int],
-    activation: str = "gelu",
+    activation: str = "silu",
     n_blocks: int = 1,
     input_size: int = IMAGE_RESIZE_TO,
 ) -> Tuple[nn.Sequential, int]:

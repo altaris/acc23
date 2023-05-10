@@ -135,7 +135,14 @@ def impute_dataframe(df: pd.DataFrame) -> pd.DataFrame:
 
     # PMF imputation for allergen columns
     a = df[ALLERGENS].to_numpy()
-    df[ALLERGENS] = pmf_impute(a, 30)
+    df[ALLERGENS] = pmf_impute(
+        a,
+        30,
+        sigma_x=0.1,
+        sigma_y=0.1,
+        sigma_v=0.1,
+        sigma_w=0.1,
+    )
 
     # Simple imputations
     imputers = [

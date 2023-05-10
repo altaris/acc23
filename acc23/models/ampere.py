@@ -18,7 +18,8 @@ from torch import Tensor, nn
 from acc23.constants import IMAGE_RESIZE_TO, N_CHANNELS, N_FEATURES, N_TARGETS
 
 from .utils import (
-    resnet_encoder,
+    ResNetEncoderLayer,
+    # resnet_encoder,
     concat_tensor_dict,
     ResNetLinearLayer,
 )
@@ -35,50 +36,63 @@ class Ampere(BaseMultilabelClassifier):
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
         self.save_hyperparameters()
-        self._module_b, encoded_dim = resnet_encoder(
-            N_CHANNELS,
-            [
-                8,  # IMAGE_RESIZE_TO = 512 -> 256
-                8,  # -> 128
-                16,  # -> 64
-                16,  # -> 32
-                32,  # -> 16
-                32,  # -> 8
-                64,  # -> 4
-                128,  # -> 2
-                256,  # -> 1
-            ],
-            # [
-            #     8,  # IMAGE_RESIZE_TO = 128 -> 64
-            #     16,  # -> 32
-            #     32,  # -> 16
-            #     32,  # -> 8
-            #     64,  # -> 4
-            # ],
-            n_blocks=1,
+        # self._module_b, encoded_dim = resnet_encoder(
+        #     N_CHANNELS,
+        #     [
+        #         8,  # IMAGE_RESIZE_TO = 512 -> 256
+        #         8,  # -> 128
+        #         16,  # -> 64
+        #         16,  # -> 32
+        #         32,  # -> 16
+        #         32,  # -> 8
+        #         64,  # -> 4
+        #         128,  # -> 2
+        #         256,  # -> 1
+        #     ],
+        #     # [
+        #     #     8,  # IMAGE_RESIZE_TO = 128 -> 64
+        #     #     16,  # -> 32
+        #     #     32,  # -> 16
+        #     #     32,  # -> 8
+        #     #     64,  # -> 4
+        #     # ],
+        #     n_blocks=1,
+        # )
+        d = 256
+        self._module_b = nn.Sequential(
+            nn.MaxPool2d(7, 1, 3),
+            ResNetEncoderLayer(N_CHANNELS, 8),  # IMAGE_RESIZE_TO = 512 -> 256
+            nn.MaxPool2d(7, 1, 3),
+            ResNetEncoderLayer(8, 8),  # -> 128
+            nn.MaxPool2d(7, 1, 3),
+            ResNetEncoderLayer(8, 16),  # -> 64
+            nn.AvgPool2d(7, 1, 3),
+            ResNetEncoderLayer(16, 16),  # -> 32
+            nn.AvgPool2d(5, 1, 2),
+            ResNetEncoderLayer(16, 32),  # -> 16
+            nn.AvgPool2d(5, 1, 2),
+            ResNetEncoderLayer(32, 32),  # -> 8
+            nn.AvgPool2d(3, 1, 1),
+            ResNetEncoderLayer(32, 64),  # -> 4
+            ResNetEncoderLayer(64, 128),  # -> 2
+            ResNetEncoderLayer(128, d),  # -> 1
+            nn.Flatten(),
         )
         self._module_a = nn.Sequential(
             ResNetLinearLayer(N_FEATURES, 256),
-            ResNetLinearLayer(256, encoded_dim),
-            ResNetLinearLayer(encoded_dim, encoded_dim),
-            ResNetLinearLayer(encoded_dim, encoded_dim),
-            ResNetLinearLayer(encoded_dim, encoded_dim),
+            ResNetLinearLayer(256, d),
         )
         self._module_c = nn.Sequential(
-            ResNetLinearLayer(2 * encoded_dim, 512),
-            ResNetLinearLayer(512, 512),
-            ResNetLinearLayer(512, 512),
-            ResNetLinearLayer(512, 512),
-            ResNetLinearLayer(512, 256),
+            ResNetLinearLayer(2 * d, 256),
             ResNetLinearLayer(256, 256),
             ResNetLinearLayer(256, 256),
             ResNetLinearLayer(256, 256),
             ResNetLinearLayer(256, 64),
             ResNetLinearLayer(64, N_TARGETS, last_activation="sigmoid"),
         )
-        # for p in self.parameters():
-        #     if p.ndim >= 2:
-        #         torch.nn.init.xavier_normal_(p)
+        for p in self.parameters():
+            if p.ndim >= 2:
+                torch.nn.init.xavier_normal_(p)
         self.example_input_array = (
             torch.zeros((32, N_FEATURES)),
             torch.zeros((32, N_CHANNELS, IMAGE_RESIZE_TO, IMAGE_RESIZE_TO)),
