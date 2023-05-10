@@ -104,15 +104,14 @@ class ACCDataset(Dataset):
                 "num_workers": 8,
             }
         """
-        a = int(len(self) * ratio)
         split_kwargs = split_kwargs or {}
         dataloader_kwargs = dataloader_kwargs or {
-            "batch_size": 32,
+            "batch_size": 64,
             "pin_memory": True,
-            "num_workers": 8,
+            "num_workers": 16,
         }
         test, train = torch.utils.data.random_split(
-            self, lengths=[a, len(self) - a], **split_kwargs
+            self, lengths=[ratio, 1.0 - ratio], **split_kwargs
         )
         return DataLoader(test, **dataloader_kwargs), DataLoader(
             train, **dataloader_kwargs

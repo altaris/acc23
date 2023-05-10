@@ -59,20 +59,35 @@ class Ampere(BaseMultilabelClassifier):
         #     n_blocks=1,
         # )
         d = 256
+        # self._module_b = nn.Sequential(
+        #     nn.MaxPool2d(7, 1, 3),
+        #     ResNetEncoderLayer(N_CHANNELS, 8),  # IMAGE_RESIZE_TO = 512 -> 256
+        #     nn.MaxPool2d(7, 1, 3),
+        #     ResNetEncoderLayer(8, 8),  # -> 128
+        #     nn.MaxPool2d(7, 1, 3),
+        #     ResNetEncoderLayer(8, 16),  # -> 64
+        #     # nn.AvgPool2d(7, 1, 3),
+        #     ResNetEncoderLayer(16, 16),  # -> 32
+        #     # nn.AvgPool2d(5, 1, 2),
+        #     ResNetEncoderLayer(16, 32),  # -> 16
+        #     # nn.AvgPool2d(5, 1, 2),
+        #     ResNetEncoderLayer(32, 32),  # -> 8
+        #     # nn.AvgPool2d(3, 1, 1),
+        #     ResNetEncoderLayer(32, 64),  # -> 4
+        #     ResNetEncoderLayer(64, 128),  # -> 2
+        #     ResNetEncoderLayer(128, d),  # -> 1
+        #     nn.Flatten(),
+        # )
         self._module_b = nn.Sequential(
             nn.MaxPool2d(7, 1, 3),
-            ResNetEncoderLayer(N_CHANNELS, 8),  # IMAGE_RESIZE_TO = 512 -> 256
-            nn.MaxPool2d(7, 1, 3),
-            ResNetEncoderLayer(8, 8),  # -> 128
-            nn.MaxPool2d(7, 1, 3),
-            ResNetEncoderLayer(8, 16),  # -> 64
-            nn.AvgPool2d(7, 1, 3),
-            ResNetEncoderLayer(16, 16),  # -> 32
-            nn.AvgPool2d(5, 1, 2),
+            ResNetEncoderLayer(N_CHANNELS, 8),  # 128 -> 64
+            # nn.AvgPool2d(7, 1, 3),
+            ResNetEncoderLayer(8, 16),  # -> 32
+            # nn.AvgPool2d(5, 1, 2),
             ResNetEncoderLayer(16, 32),  # -> 16
-            nn.AvgPool2d(5, 1, 2),
+            # nn.AvgPool2d(5, 1, 2),
             ResNetEncoderLayer(32, 32),  # -> 8
-            nn.AvgPool2d(3, 1, 1),
+            # nn.AvgPool2d(3, 1, 1),
             ResNetEncoderLayer(32, 64),  # -> 4
             ResNetEncoderLayer(64, 128),  # -> 2
             ResNetEncoderLayer(128, d),  # -> 1
