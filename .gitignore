@@ -175,4 +175,4 @@ cython_debug/
 data/
 old/
 out/
-secret.env
+*.secret
