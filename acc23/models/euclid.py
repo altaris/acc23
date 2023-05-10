@@ -17,6 +17,8 @@ from .utils import ResNetLinearLayer, concat_tensor_dict
 
 
 class ConvolutionalBlock(nn.Module):
+    """A simple convolution - normalization - activation - pooling block"""
+
     convolution: nn.Module
     normalization: nn.Module
     activation: nn.Module

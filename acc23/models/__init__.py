@@ -6,3 +6,4 @@ from .bastet import Bastet
 from .citrus import Citrus
 from .dexter import Dexter
 from .euclid import Euclid
+from .farzad import Farzad
