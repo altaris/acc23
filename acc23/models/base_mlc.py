@@ -1,7 +1,6 @@
 """Base class for multilabel classifiers"""
 
-from typing import Dict, Optional, Tuple, Union
-import numpy as np
+from typing import Dict, Optional, Tuple
 import pytorch_lightning as pl
 
 import torch
@@ -58,7 +57,7 @@ class BaseMultilabelClassifier(pl.LightningModule):
         loss = (
             nn.functional.mse_loss(y_pred, y_true)
             # nn.functional.binary_cross_entropy(y_pred, y_true)
-            # + continuous_hamming_loss(y_pred, y_true)
+            # bp_mll_loss(y_pred, y_true)
             - w * continuous_f1_score(y_pred, y_true)
         )
         acc = accuracy_score(y_true_np, y_pred_np)
@@ -139,12 +138,7 @@ def continuous_hamming_loss(
     return h.mean()
 
 
-def continuous_f1_score(
-    y_pred: Union[np.ndarray, Tensor],
-    y_true: Union[np.ndarray, Tensor],
-    *_,
-    **__,
-) -> Union[np.ndarray, Tensor]:
+def continuous_f1_score(y_pred: Tensor, y_true: Tensor, *_, **__) -> Tensor:
     """
     Implementation of the F1 score as specified by the challenge organizers:
 
@@ -185,7 +179,18 @@ def continuous_f1_score(
             )
         print("Challenge implementation", continuous_f1_score(y_pred, y_true))
     """
-    ts, ps, tp = y_true.sum(0), y_pred.sum(0), (y_true * y_pred).sum(0)
-    pr, re = tp / (ps + 1e-10), tp / (ts + 1e-10)
-    f = 2 * pr * re / (pr + re + 1e-10)
-    return f.mean()
+    p, pp, tp = y_true.sum(0), y_pred.sum(0), (y_true * y_pred).sum(0)
+    pr, re = tp / (pp + 1e-10), tp / (p + 1e-10)
+    return torch.mean(2 * pr * re / (pr + re + 1e-10))
+
+
+def continuous_precision(y_pred: Tensor, y_true: Tensor, *_, **__) -> Tensor:
+    """Self-explanatory"""
+    pp, tp = y_pred.sum(0), (y_true * y_pred).sum(0)
+    return torch.mean(tp / (pp + 1e-10))
+
+
+def continuous_recall(y_pred: Tensor, y_true: Tensor, *_, **__) -> Tensor:
+    """Self-explanatory"""
+    p, tp = y_true.sum(0), (y_true * y_pred).sum(0)
+    return torch.mean(tp / (p + 1e-10))

@@ -4,6 +4,7 @@
 from datetime import datetime
 
 from loguru import logger as logging
+from torchvision.transforms import Normalize
 
 from acc23.dataset import ACCDataset
 from acc23.models import Ampere as Model  # SET CORRECT MODEL CLASS HERE
@@ -12,11 +13,10 @@ from acc23.utils import last_checkpoint_path, train_model
 
 
 def main():
-
     name = Model.__name__.lower()
     if name == "dexter":
         # Model requires autoencoder
-        # TODO: Could read latent dim from hparams.yaml
+        # TODO: Could read latent dim from hparams.yaml
         model = Model(ae_latent_dim=128)
         ae_ckpt = last_checkpoint_path(
             "out/tb_logs/autoencoder/version_1/checkpoints/"
@@ -24,7 +24,12 @@ def main():
     else:
         model, ae_ckpt = Model(), None
 
-    ds = ACCDataset("data/train.csv", "data/images", autoencoder_ckpt=ae_ckpt)
+    ds = ACCDataset(
+        "data/train.csv",
+        "data/images",
+        image_transform=Normalize(0, 1),
+        autoencoder_ckpt=ae_ckpt,
+    )
     train, val = ds.test_train_split_dl()
     model = train_model(
         model,
@@ -34,12 +39,14 @@ def main():
         name=name,
         early_stopping_kwargs={
             "monitor": "val/f1",
-            "patience": 20,
+            "patience": 25,
             "mode": "max",
         },
     )
 
-    df = evaluate_on_test_dataset(model, "data/test.csv", "data/images", ae_ckpt)
+    df = evaluate_on_test_dataset(
+        model, "data/test.csv", "data/images", ae_ckpt
+    )
     dt = datetime.now().strftime("%Y-%m-%d-%H-%M")
     path = f"out/{dt}.{name}.csv"
     df.to_csv(path, index=False)
