@@ -176,7 +176,9 @@ def impute_dataframe(df: pd.DataFrame) -> pd.DataFrame:
     return pd.DataFrame(data=x, columns=impute_columns + non_impute_columns)
 
 
-def load_csv(path: Union[str, Path], preprocess: bool = True, impute: bool = True) -> pd.DataFrame:
+def load_csv(
+    path: Union[str, Path], preprocess: bool = True, impute: bool = True
+) -> pd.DataFrame:
     """
     Opens a csv dataframe (presumable `data/train.csv` or `data/test.csv`),
     enforces adequate column types (see `acc23.preprocessing.get_dtypes`), and
@@ -200,6 +202,10 @@ def load_csv(path: Union[str, Path], preprocess: bool = True, impute: bool = Tru
         df = preprocess_dataframe(df)
         if impute:
             df = impute_dataframe(df)
+        else:
+            logging.debug("Skipped imputation")
+    else:
+        logging.debug("Skipped preprocessing and imputation")
     return df
 
 
@@ -223,13 +229,13 @@ def load_image(path: Union[str, Path]) -> torch.Tensor:
     arr = torch.Tensor(np.asarray(img))  # (W, H, C)
     arr = arr.permute(2, 1, 0)  # (C, H, W)
     arr = arr.to(torch.float32)
-    arr -= arr.min()
-    arr /= arr.max()
-    # s = 1400
-    # _, h, w = arr.shape
-    # arr = pad(arr, (0, 0, s - w, s - h), float(arr.mean()))
+    # arr -= arr.min()
+    # arr /= arr.max()
+    s = 1400
+    _, h, w = arr.shape
+    arr = pad(arr, (0, 0, s - w, s - h), float(arr.mean()))
     arr = resize(arr, (IMAGE_RESIZE_TO, IMAGE_RESIZE_TO), antialias=True)
-    # arr = normalize(arr, [0] * N_CHANNELS, [1] * N_CHANNELS)
+    arr = normalize(arr, [0] * N_CHANNELS, [1] * N_CHANNELS)
     return arr
 
 
