@@ -72,10 +72,9 @@ def main(logging_level: str):
 @click.argument(
     "output_file",
     type=click.Path(
-        exists=True,
         file_okay=True,
         dir_okay=False,
-        readable=True,
+        writable=True,
         path_type=Path,
     ),
 )
@@ -86,7 +85,7 @@ def preprocess(csv_file: Path, output_file: Path, *_, **__) -> None:
     logging.info("Preprocessing file '{}'", csv_file)
     df = load_csv(csv_file)
     logging.info("Saving to '{}'", output_file)
-    df.to_csv(output_file)
+    df.to_csv(output_file, index=False)
 
 
 @main.command()
