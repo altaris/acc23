@@ -42,7 +42,11 @@ def evaluate_on_test_dataset(
     with torch.no_grad():
         y = [model(x, img) for x, _, img in track(dl, "Evaluating...")]
     df = output_to_dataframe(torch.cat(y))
-    ids = pd.read_csv(csv_file_path)["trustii_id"]
+    raw = pd.read_csv(csv_file_path)
+    if "trustii_id" in raw.columns:
+        ids = raw["trustii_id"]
+    else:
+        ids = pd.Series(range(len(df)), name="trustii_id")
     df = pd.concat([ids, df], axis=1)
     df.set_index("trustii_id")
     return df
