@@ -87,9 +87,9 @@ class ACCDataset(Dataset):
         are
 
             {
-                "batch_size": 32,
+                "batch_size": 64,
                 "pin_memory": True,
-                "num_workers": 8,
+                "num_workers": 16,
             }
         """
         split_kwargs = split_kwargs or {}

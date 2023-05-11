@@ -7,3 +7,4 @@ from .citrus import Citrus
 from .dexter import Dexter
 from .euclid import Euclid
 from .farzad import Farzad
+from .gordon import Gordon
