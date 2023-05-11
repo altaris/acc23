@@ -224,9 +224,10 @@ def train_model(
         additional_callbacks = []
     if not early_stopping_kwargs:
         early_stopping_kwargs = {
+            "check_finite": True,
+            "mode": "min",
             "monitor": "val/loss",
             "patience": 10,
-            "mode": "min",
         }
 
     tb_logger = pl.loggers.TensorBoardLogger(

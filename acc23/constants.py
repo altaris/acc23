@@ -507,6 +507,49 @@ TARGETS = [
     "Type_of_Venom_Allergy_IGE_Venom",
 ]
 
+POSITIVE_TARGET_RATIOS = [
+    0.54700569,
+    0.38541318,
+    0.77283372,
+    0.59518234,
+    0.08631649,
+    0.26664436,
+    0.13449314,
+    0.24857812,
+    0.52124456,
+    0.36400134,
+    0.56808297,
+    0.47039144,
+    0.48845768,
+    0.24422884,
+    0.01739712,
+    0.00133824,
+    0.01873536,
+    0.0234192,
+    0.02275008,
+    0.04516561,
+    0.01271328,
+    0.03680161,
+    0.02375376,
+    0.05587153,
+    0.01940448,
+    0.0184008,
+    0.07326865,
+    0.00769488,
+    0.08230177,
+]
+"""
+Ratio of rows that have positive targets
+
+    import pandas as pd
+    from acc23.constants import TARGETS
+    df = pd.read_csv("data/train.csv")
+    t = df[TARGETS].to_numpy()
+    t.sum(axis=0) / len(t)
+
+TODO: Don't hardcode this :/
+"""
+
 N_TARGETS = len(TARGETS)
 """Number of target columns"""
 

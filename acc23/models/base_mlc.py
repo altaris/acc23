@@ -12,6 +12,9 @@ from sklearn.metrics import (
     precision_score,
     recall_score,
 )
+
+from acc23.constants import POSITIVE_TARGET_RATIOS
+
 from .utils import concat_tensor_dict
 
 
@@ -53,12 +56,14 @@ class BaseMultilabelClassifier(pl.LightningModule):
         y_pred = self(x, img)
         y_true_np = y_true.cpu().detach().numpy()
         y_pred_np = y_pred.cpu().detach().numpy() > 0.5
-        w = 1
+        # w = 1
+        bce_weights = Tensor(POSITIVE_TARGET_RATIOS).to(y_pred.device)
         loss = (
-            nn.functional.mse_loss(y_pred, y_true)
+            # nn.functional.mse_loss(y_pred, y_true)
             # nn.functional.binary_cross_entropy(y_pred, y_true)
+            weighted_binary_cross_entropy(y_pred, y_true, bce_weights)
             # bp_mll_loss(y_pred, y_true)
-            - w * continuous_f1_score(y_pred, y_true)
+            # - w * continuous_f1_score(y_pred, y_true)
         )
         acc = accuracy_score(y_true_np, y_pred_np)
         ham = hamming_loss(y_true_np, y_pred_np)
@@ -72,10 +77,16 @@ class BaseMultilabelClassifier(pl.LightningModule):
         rec = recall_score(**kw)
         f1 = f1_score(**kw)
         if stage is not None:
-            self.log(f"{stage}/f1", f1, sync_dist=True, prog_bar=True)
             self.log_dict(
                 {
                     f"{stage}/loss": loss,
+                    f"{stage}/f1": f1,
+                },
+                sync_dist=True,
+                prog_bar=True,
+            )
+            self.log_dict(
+                {
                     f"{stage}/acc": acc,
                     f"{stage}/ham": ham,
                     f"{stage}/prec": prec,
@@ -194,3 +205,25 @@ def continuous_recall(y_pred: Tensor, y_true: Tensor, *_, **__) -> Tensor:
     """Self-explanatory"""
     p, tp = y_true.sum(0), (y_true * y_pred).sum(0)
     return torch.mean(tp / (p + 1e-10))
+
+
+def weighted_binary_cross_entropy(
+    y_pred: Tensor, y_true: Tensor, w: Tensor
+) -> Tensor:
+    """
+    Binary crossentropy loss that incorporates positive class weights. Use this
+    in your fight against class imbalance. If `y_pred` and `y_true` have shape
+    `(N, C)`, then `w` must have shape `(C,)`, where `C` is the number of
+    classes.
+
+    See also:
+        https://pytorch.org/docs/stable/generated/torch.nn.BCELoss.html
+
+    TODO:
+        Training with this makes some NN weights to become NaN... :/
+    """
+    b = nn.functional.binary_cross_entropy(y_pred, y_true, reduction="none")
+    k = y_pred * w + (1 - y_pred) * (1 - w)
+    # The factor if 2 is so that if the classes are perfectly balanced (w =
+    # .5), then this matches the usual bce loss.
+    return 2 * torch.mean(k * b)
