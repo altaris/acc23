@@ -150,6 +150,7 @@ class ResNetLinearLayer(nn.Module):
     linear: nn.Module
     residual: nn.Module
     last_activation: nn.Module
+    dropout: nn.Module
 
     def __init__(
         self,
@@ -158,6 +159,7 @@ class ResNetLinearLayer(nn.Module):
         latent_features: Optional[int] = None,
         activation: str = "silu",
         last_activation: str = "silu",
+        dropout: float = 0.0,
         **kwargs,
     ) -> None:
         super().__init__(**kwargs)
@@ -175,12 +177,15 @@ class ResNetLinearLayer(nn.Module):
             if in_features == out_features
             else nn.Linear(in_features, out_features)
         )
+        self.dropout = nn.Dropout(dropout) if dropout > 0 else nn.Identity()
 
     def forward(self, x: Tensor) -> Tensor:
         """Override"""
         a = self.linear(x)
         b = self.residual(x)
-        return self.last_activation(a + b)
+        ab = self.last_activation(a + b)
+        z = self.dropout(ab)
+        return z
 
 
 def basic_encoder(

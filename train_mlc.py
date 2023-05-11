@@ -5,13 +5,12 @@
 from datetime import datetime
 from functools import partial
 
-import torch
 from loguru import logger as logging
 from torch import Tensor
 
 from acc23.autoencoders import AE, VAE
 from acc23.dataset import ACCDataset
-from acc23.models import Farzad as Model  # SET CORRECT MODEL CLASS HERE
+from acc23.models import Gordon as Model  # SET CORRECT MODEL CLASS HERE
 from acc23.postprocessing import evaluate_on_test_dataset
 from acc23.utils import last_checkpoint_path, train_model
 
@@ -50,14 +49,13 @@ def main():
     else:
         model, image_transform = Model(), None
 
-    ds = ACCDataset("data/train.csv", "data/images", image_transform)
-    # ds = ACCDataset(
-    #     "data/train.processed.csv",
-    #     "data/images",
-    #     image_transform,
-    #     load_csv_kwargs={"preprocess": False, "impute": False},
-    # )
-    train, val = ds.test_train_split_dl()
+    ds = ACCDataset(
+        "data/train.pre.csv",
+        "data/images",
+        image_transform,
+        load_csv_kwargs={"preprocess": False, "impute": False},
+    )
+    train, val = ds.test_train_split_dl(ratio=0.9)
     model = train_model(
         model,
         train,
@@ -72,7 +70,11 @@ def main():
     )
 
     df = evaluate_on_test_dataset(
-        model, "data/test.csv", "data/images", image_transform
+        model,
+        "data/test.csv",
+        "data/images",
+        image_transform,
+        # load_csv_kwargs={"preprocess": False, "impute": False},
     )
     dt = datetime.now().strftime("%Y-%m-%d-%H-%M")
     path = f"out/{dt}.{name}.csv"

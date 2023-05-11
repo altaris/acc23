@@ -1,6 +1,6 @@
 """Base class for multilabel classifiers"""
 
-from typing import Dict, Optional, Tuple
+from typing import Any, Dict, Optional, Tuple
 import pytorch_lightning as pl
 
 import torch
@@ -18,8 +18,16 @@ from .utils import concat_tensor_dict
 class BaseMultilabelClassifier(pl.LightningModule):
     """Base class for multilabel classifiers (duh)"""
 
-    def configure_optimizers(self):
-        return torch.optim.Adam(self.parameters(), lr=1e-3)
+    def configure_optimizers(self) -> Any:
+        optimizer = torch.optim.Adam(self.parameters(), lr=1e-3)
+        scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+            optimizer, mode="min", factor=0.2, patience=20, min_lr=5e-5
+        )
+        return {
+            "optimizer": optimizer,
+            "lr_scheduler": scheduler,
+            "monitor": "val/loss",
+        }
 
     def evaluate(
         self,

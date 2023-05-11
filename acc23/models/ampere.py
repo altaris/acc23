@@ -19,7 +19,6 @@ from acc23.constants import IMAGE_RESIZE_TO, N_CHANNELS, N_FEATURES, N_TARGETS
 
 from .utils import (
     ResNetEncoderLayer,
-    # resnet_encoder,
     concat_tensor_dict,
     ResNetLinearLayer,
 )
@@ -36,28 +35,6 @@ class Ampere(BaseMultilabelClassifier):
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
         self.save_hyperparameters()
-        # self._module_b, encoded_dim = resnet_encoder(
-        #     N_CHANNELS,
-        #     [
-        #         8,  # IMAGE_RESIZE_TO = 512 -> 256
-        #         8,  # -> 128
-        #         16,  # -> 64
-        #         16,  # -> 32
-        #         32,  # -> 16
-        #         32,  # -> 8
-        #         64,  # -> 4
-        #         128,  # -> 2
-        #         256,  # -> 1
-        #     ],
-        #     # [
-        #     #     8,  # IMAGE_RESIZE_TO = 128 -> 64
-        #     #     16,  # -> 32
-        #     #     32,  # -> 16
-        #     #     32,  # -> 8
-        #     #     64,  # -> 4
-        #     # ],
-        #     n_blocks=1,
-        # )
         d = 256
         # self._module_b = nn.Sequential(
         #     nn.MaxPool2d(7, 1, 3),
@@ -105,9 +82,9 @@ class Ampere(BaseMultilabelClassifier):
             ResNetLinearLayer(256, 64),
             ResNetLinearLayer(64, N_TARGETS, last_activation="sigmoid"),
         )
-        for p in self.parameters():
-            if p.ndim >= 2:
-                torch.nn.init.xavier_normal_(p)
+        # for p in self.parameters():
+        #     if p.ndim >= 2:
+        #         torch.nn.init.xavier_normal_(p)
         self.example_input_array = (
             torch.zeros((32, N_FEATURES)),
             torch.zeros((32, N_CHANNELS, IMAGE_RESIZE_TO, IMAGE_RESIZE_TO)),

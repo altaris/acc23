@@ -9,7 +9,11 @@ from diffusers.models.vae import DiagonalGaussianDistribution
 from torch import Tensor, nn
 
 from acc23.constants import IMAGE_RESIZE_TO, N_CHANNELS
-from acc23.models.utils import ResNetEncoderLayer, resnet_decoder, resnet_encoder
+from acc23.models.utils import (
+    ResNetEncoderLayer,
+    resnet_decoder,
+    resnet_encoder,
+)
 
 
 class AE(pl.LightningModule):
