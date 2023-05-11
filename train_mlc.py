@@ -69,17 +69,18 @@ def main():
         },
     )
 
-    df = evaluate_on_test_dataset(
-        model,
-        "data/test.csv",
-        "data/images",
-        image_transform,
-        # load_csv_kwargs={"preprocess": False, "impute": False},
-    )
     dt = datetime.now().strftime("%Y-%m-%d-%H-%M")
-    path = f"out/{dt}.{name}.csv"
-    df.to_csv(path, index=False)
-    logging.info("Saved test set prediction to '{}'", path)
+    for dst in ["test", "train"]:
+        path = f"out/{dt}.{name}.{dst}.csv"
+        df = evaluate_on_test_dataset(
+            model,
+            f"data/{dst}.csv",
+            "data/images",
+            image_transform,
+            # load_csv_kwargs={"preprocess": False, "impute": False},
+        )
+        df.to_csv(f"out/{dt}.{name}.{dst}.csv", index=False)
+        logging.info("Saved test set prediction to '{}'", path)
 
 
 if __name__ == "__main__":
