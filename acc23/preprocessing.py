@@ -176,20 +176,30 @@ def impute_dataframe(df: pd.DataFrame) -> pd.DataFrame:
     return pd.DataFrame(data=x, columns=impute_columns + non_impute_columns)
 
 
-def load_csv(path: Union[str, Path], impute: bool = True) -> pd.DataFrame:
+def load_csv(path: Union[str, Path], preprocess: bool = True, impute: bool = True) -> pd.DataFrame:
     """
     Opens a csv dataframe (presumable `data/train.csv` or `data/test.csv`),
-    enforces adequate column types (see `get_dtypes`), and applies some
-    preprocessing transforms (see `preprocess_dataframe`).
+    enforces adequate column types (see `acc23.preprocessing.get_dtypes`), and
+    applies some preprocessing transforms (see
+    `acc23.preprocessing.preprocess_dataframe`).
+
+    Args:
+        path (Union[str, Path]): Path of the csv file.
+        preprocess (bool): Wether the dataframe should go through
+            `acc23.preprocessing.preprocess_dataframe`.
+        impute (bool): Wether the dataframe should be imputed (see
+            `acc23.preprocessing.impute_dataframe`). Note that imputation is
+            not performed if `preprocess=False`.
     """
     logging.debug("Loading dataframe {}", path)
     dtypes = get_dtypes()
     df = pd.read_csv(path, dtype=dtypes)
     # Apparently typing 1 time isn't enough
     df = df.astype({c: t for c, t in dtypes.items() if c in df.columns})
-    df = preprocess_dataframe(df)
-    if impute:
-        df = impute_dataframe(df)
+    if preprocess:
+        df = preprocess_dataframe(df)
+        if impute:
+            df = impute_dataframe(df)
     return df
 
 
@@ -213,13 +223,13 @@ def load_image(path: Union[str, Path]) -> torch.Tensor:
     arr = torch.Tensor(np.asarray(img))  # (W, H, C)
     arr = arr.permute(2, 1, 0)  # (C, H, W)
     arr = arr.to(torch.float32)
-    # arr -= arr.min()
-    # arr /= arr.max()
-    s = 1400
-    _, h, w = arr.shape
-    arr = pad(arr, (0, 0, s - w, s - h), float(arr.mean()))
+    arr -= arr.min()
+    arr /= arr.max()
+    # s = 1400
+    # _, h, w = arr.shape
+    # arr = pad(arr, (0, 0, s - w, s - h), float(arr.mean()))
     arr = resize(arr, (IMAGE_RESIZE_TO, IMAGE_RESIZE_TO), antialias=True)
-    arr = normalize(arr, [0] * N_CHANNELS, [1] * N_CHANNELS)
+    # arr = normalize(arr, [0] * N_CHANNELS, [1] * N_CHANNELS)
     return arr
 
 

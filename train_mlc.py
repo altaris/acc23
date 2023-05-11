@@ -3,38 +3,60 @@
 """Script to train acc23's current model implementation"""
 
 from datetime import datetime
+from functools import partial
 
+import torch
 from loguru import logger as logging
+from torch import Tensor
 
-from acc23.ae import Autoencoder
+from acc23.autoencoders import AE, VAE
 from acc23.dataset import ACCDataset
 from acc23.models import Farzad as Model  # SET CORRECT MODEL CLASS HERE
 from acc23.postprocessing import evaluate_on_test_dataset
 from acc23.utils import last_checkpoint_path, train_model
-from acc23.vae import VAE
 
 
 def main():
     name = Model.__name__.lower()
+
     if name == "dexter":
+
+        def _ae_encode(ae: AE, x: Tensor) -> Tensor:
+            z = ae.encode(x.unsqueeze(0)).flatten()
+            return z
+
         ckpt = last_checkpoint_path(
             "out/tb_logs/autoencoder/version_1/checkpoints/"
         )
-        ae = Autoencoder.load_from_checkpoint(ckpt)
+        ae = AE.load_from_checkpoint(ckpt)
         ae.eval()
-        image_transform = lambda x: ae.encode(x.unsqueeze(0))[0]
-        model = Model(ae_latent_dim=ae.hparams["latent_space_dim"])
+        ae.requires_grad_(False)
+        image_transform = partial(_ae_encode, ae)
+        model = Model(ae_latent_dim=ae.hparams["latent_dim"])
+
     elif name == "farzad":
-        ckpt = last_checkpoint_path("out/tb_logs/vae/version_0/checkpoints/")
+
+        def _vae_encode(vae: VAE, x: Tensor) -> Tensor:
+            z = vae.encode(x.unsqueeze(0)).sample().flatten()
+            return z
+
+        ckpt = last_checkpoint_path("out/tb_logs/vae/version_2/checkpoints/")
         vae = VAE.load_from_checkpoint(ckpt)
         vae.eval()
-        ls = vae.latent_shape
-        ld = ls[0] * ls[1] * ls[2]
-        image_transform = lambda x: vae(x.unsqueeze(0))[0]
-        model = Model(vae_latent_dim=ld)
+        vae.requires_grad_(False)
+        image_transform = partial(_vae_encode, vae)
+        model = Model(vae_latent_dim=vae.hparams["latent_dim"])
+
     else:
         model, image_transform = Model(), None
+
     ds = ACCDataset("data/train.csv", "data/images", image_transform)
+    # ds = ACCDataset(
+    #     "data/train.processed.csv",
+    #     "data/images",
+    #     image_transform,
+    #     load_csv_kwargs={"preprocess": False, "impute": False},
+    # )
     train, val = ds.test_train_split_dl()
     model = train_model(
         model,

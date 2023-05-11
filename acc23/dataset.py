@@ -34,6 +34,7 @@ class ACCDataset(Dataset):
         csv_file_path: Union[str, Path],
         image_dir_path: Union[str, Path],
         image_transform: Optional[Transform_t] = None,
+        load_csv_kwargs: Optional[dict] = None,
     ):
         """
         Args:
@@ -44,10 +45,13 @@ class ACCDataset(Dataset):
                 to apply to the images. Note that images are already resized to
                 `constants.IMAGE_RESIZE_TO` and rescales to $[0, 1]$ before
                 `image_transform` can touch them.
+            load_csv_kwargs (Optional[dict]): kwargs to pass to
+                `acc23.preprocessing.load_csv`.
         """
+        load_csv_kwargs = load_csv_kwargs or {}
         self.csv_file_path = Path(csv_file_path)
         self.image_dir_path = Path(image_dir_path)
-        self.data = load_csv(csv_file_path)
+        self.data = load_csv(csv_file_path, **load_csv_kwargs)
         self.image_transform = image_transform or (lambda x: x)
 
     def __len__(self) -> int:
