@@ -38,16 +38,16 @@ class ConvFusionLayer(nn.Module):
     ) -> None:
         super().__init__()
         self.block_1 = nn.Sequential(
-            nn.Conv2d(in_channels, in_channels, 1, 1, 0),
+            nn.Conv2d(in_channels, in_channels, 1, 1, 0, bias=False),
             nn.Softmax(dim=1),
         )
         self.block_2 = nn.Sequential(
-            nn.Conv2d(in_channels, in_channels, 1, 1, 0),
+            nn.Conv2d(in_channels, in_channels, 1, 1, 0, bias=False),
             nn.BatchNorm2d(in_channels),
             get_activation(activation),
         )
         self.linear = nn.Linear(n_features, in_channels)
-        self.conv = nn.Conv2d(in_channels, in_channels, 1, 1, 0)
+        self.conv = nn.Conv2d(in_channels, in_channels, 1, 1, 0, bias=False)
 
     def forward(self, x: Tensor, h: Tensor, *_, **__) -> Tensor:
         """Override"""
@@ -124,10 +124,11 @@ class Gordon(BaseMultilabelClassifier):
             ResNetLinearLayer(256, n_features),
         )
         self._module_b = nn.Sequential(
-            nn.Conv2d(N_CHANNELS, 8, 3, 1, 1),  # IMAGE_RESIZE_TO = 512 -> 512
+            nn.MaxPool2d(9, 2, 4),  # IMAGE_RESIZE_TO = 512 -> 256
+            nn.Conv2d(N_CHANNELS, 8, 3, 1, 1, bias=False),  # -> 256
             nn.BatchNorm2d(8),
             nn.SiLU(),
-            nn.MaxPool2d(9, 2, 3),  # 256 -> 256
+            nn.MaxPool2d(7, 1, 3),  # 256 -> 256
         )
         self._module_c = FusionEncoder(
             in_channels=8,
