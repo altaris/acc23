@@ -71,7 +71,7 @@ class Bastet(BaseMultilabelClassifier):
         self._module_e = nn.Sequential(
             ResNetLinearLayer(encoded_dim, 256),
             ResNetLinearLayer(256, 64),
-            ResNetLinearLayer(64, N_TARGETS, last_activation="sigmoid"),
+            ResNetLinearLayer(64, N_TARGETS),
         )
         self.example_input_array = (
             torch.zeros((32, N_FEATURES)),

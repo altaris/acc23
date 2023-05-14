@@ -264,9 +264,9 @@ def train_model(
 
     trainer.fit(model, train_dl, val_dl)
 
-    ckpt = Path(trainer.checkpoint_callback.best_model_path)  # type: ignore
+    ckpt = str(trainer.checkpoint_callback.best_model_path)  # type: ignore
     logging.debug("Loading best checkpoint '{}'", ckpt)
-    return type(model).load_from_checkpoint(str(ckpt))  # type: ignore
+    return type(model).load_from_checkpoint(ckpt)  # type: ignore
 
 
 def train_model_guarded(

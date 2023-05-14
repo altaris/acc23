@@ -59,19 +59,25 @@ class BaseMultilabelClassifier(pl.LightningModule):
         y_true = concat_tensor_dict(y).float().to(self.device)  # type: ignore
         y_pred = self(x, img)
         y_true_np = y_true.cpu().detach().numpy()
-        y_pred_np = y_pred.cpu().detach().numpy() > 0.5
+        y_pred_np = y_pred.cpu().detach().numpy() > 0
         # w = 1
         positive_count = Tensor(POSITIVE_TARGET_COUNTS).to(y_pred.device)
-        positive_ratio = Tensor(POSITIVE_TARGET_RATIOS).to(y_pred.device)
+        # positive_ratio = Tensor(POSITIVE_TARGET_RATIOS).to(y_pred.device)
         loss = (
-            # nn.functional.mse_loss(y_pred, y_true)
-            # nn.functional.binary_cross_entropy(y_pred, y_true)
-            # weighted_binary_cross_entropy(y_pred, y_true, positive_ratio)
-            # rebalanced_binary_cross_entropy(y_pred, y_true, positive_count)
-            # focal_loss(y_pred, y_true)
-            distribution_balanced_loss(y_pred, y_true, positive_count)
-            # bp_mll_loss(y_pred, y_true)
-            # - w * continuous_f1_score(y_pred, y_true)
+            # nn.functional.mse_loss(y_pred.sigmoid(), y_true)
+            # nn.functional.binary_cross_entropy_with_logits(y_pred, y_true)
+            # weighted_binary_cross_entropy_with_logits(
+            #     y_pred, y_true, positive_ratio
+            # )
+            rebalanced_binary_cross_entropy_with_logits(
+                y_pred, y_true, positive_count
+            )
+            # focal_loss_with_logits(y_pred, y_true)
+            # distribution_balanced_loss_with_logits(
+            #     y_pred, y_true, positive_count
+            # )
+            # bp_mll_loss(y_pred.sigmoid(), y_true)
+            # - w * continuous_f1_score(y_pred.sigmoid(), y_true)
         )
         acc = accuracy_score(y_true_np, y_pred_np)
         ham = hamming_loss(y_true_np, y_pred_np)
@@ -115,6 +121,20 @@ class BaseMultilabelClassifier(pl.LightningModule):
         x, y, img = batch
         return self.evaluate(x, y, img, "train")[0]
 
+    # Set self.automatic_optimization = False in __init__ to use this
+    # def training_step(self, batch, *_, **__):
+    #     x, y, img = batch
+    #     opt = self.optimizers()
+    #     opt.zero_grad()
+    #     loss = self.evaluate(x, y, img, "train")[0]
+    #     self.manual_backward(loss)
+    #     opt.step()
+    #     a = []
+    #     for p in self.parameters():
+    #         if p.grad is not None:
+    #             a.append(p.grad.mean())
+    #     print("TRAIN", "loss", loss, "grads", Tensor(a).mean())
+
     def validation_step(self, batch, *_, **__):
         x, y, img = batch
         return self.evaluate(x, y, img, "val")[0]
@@ -127,12 +147,15 @@ def bp_mll_loss(y_pred: Tensor, y_true: Tensor, *_, **__) -> Tensor:
         Zhang, Min-Ling, and Zhi-Hua Zhou. "Multilabel neural networks with
         applications to functional genomics and text categorization." IEEE
         transactions on Knowledge and Data Engineering 18.10 (2006): 1338-1351.
+
+    `y_pred` is expected to contain class probabilities.
     """
     y_bar = 1 - y_true
     k = 1 / (y_true.sum(dim=-1) * y_bar.sum(dim=-1) + 1e-10)
     s = y_true.unsqueeze(-1) * y_bar.unsqueeze(1)
     # s_ijk = y_true_ij and (not y_true_ik)
     a = y_pred.unsqueeze(-1) - y_pred.unsqueeze(1)
+    a = a.sigmoid()
     # a_ijk = y_pred_ij - y_pred_ik
     b = s * torch.exp(-a)
     return (k * b.sum((1, 2))).mean()
@@ -145,7 +168,8 @@ def bp_mll_loss(y_pred: Tensor, y_true: Tensor, *_, **__) -> Tensor:
     #             assert s[i, j, k] == y_true[i, j] * (1 - y_true[i, k])
     #             assert a[i, j, k] == y_pred[i, j] - y_pred[i, k]
 
-def class_balanced_loss(
+
+def class_balanced_loss(  # TODO
     y_pred: Tensor,
     y_true: Tensor,
     positive_count: Tensor,
@@ -160,11 +184,12 @@ def class_balanced_loss(
         Computer Vision and Pattern Recognition (CVPR), Long Beach, CA, USA,
         2019, pp. 9260-9269, doi: 10.1109/CVPR.2019.00949.
     """
-    r = (1 - beta) / (1 - beta ** positive_count)
+    r = (1 - beta) / (1 - beta**positive_count)
     pt = y_true * y_pred + (1 - y_true) * (1 - y_pred)
     pt = (1 - pt) ** gamma
     bce = nn.functional.binary_cross_entropy(y_pred, y_true, reduction="none")
     return torch.mean(r * pt * bce)
+
 
 def continuous_hamming_loss(
     y_pred: Tensor, y_true: Tensor, *_, **__
@@ -172,6 +197,8 @@ def continuous_hamming_loss(
     """
     Continuous (and differentiable) version of the Hamming loss. The (discrete)
     Hamming loss is the fraction of labels that are incorrectly predicted.
+
+    `y_pred` is expected to contain class probabilities.
     """
     h = (1 - y_true) * y_pred + y_true * (1 - y_pred)
     return h.mean()
@@ -217,25 +244,15 @@ def continuous_f1_score(y_pred: Tensor, y_true: Tensor, *_, **__) -> Tensor:
                 f1_score(y_true, y_pred, average=a)
             )
         print("Challenge implementation", continuous_f1_score(y_pred, y_true))
+
+    `y_pred` is expected to contain class probabilities.
     """
     p, pp, tp = y_true.sum(0), y_pred.sum(0), (y_true * y_pred).sum(0)
     pr, re = tp / (pp + 1e-10), tp / (p + 1e-10)
     return torch.mean(2 * pr * re / (pr + re + 1e-10))
 
 
-def continuous_precision(y_pred: Tensor, y_true: Tensor, *_, **__) -> Tensor:
-    """Self-explanatory"""
-    pp, tp = y_pred.sum(0), (y_true * y_pred).sum(0)
-    return torch.mean(tp / (pp + 1e-10))
-
-
-def continuous_recall(y_pred: Tensor, y_true: Tensor, *_, **__) -> Tensor:
-    """Self-explanatory"""
-    p, tp = y_true.sum(0), (y_true * y_pred).sum(0)
-    return torch.mean(tp / (p + 1e-10))
-
-
-def distribution_balanced_loss(
+def distribution_balanced_loss_with_logits(
     y_pred: Tensor,
     y_true: Tensor,
     positive_count: Tensor,
@@ -247,24 +264,25 @@ def distribution_balanced_loss(
     kappa: float = 5e-3,
 ) -> Tensor:
     """
-    A mix between focal loss (`acc23.models.base_mlc.focal_loss`) and
+    A mix between focal loss (`acc23.models.base_mlc.focal_loss_with_logits`) and
     rebalanced cross entropy
-    (`acc23.models.base_mlc.rebalanced_binary_cross_entropy`).
+    (`acc23.models.base_mlc.rebalanced_binary_cross_entropy_with_logits`).
     """
-    pt = y_true * y_pred + (1 - y_true) * (1 - y_pred)
-    pt = (1 - pt) ** gamma
-    pc = 1 / (N_TARGETS * (positive_count + 1e-10))
-    pi = torch.sum(y_true / (positive_count + 1e-10), dim=-1) / N_TARGETS
+    nu = -kappa * torch.log(1 / y_pred.sigmoid() - 1).clamp(-100, 0)
+    z = y_true * (y_pred - nu) + (1 - y_true) * (-1) * lambda_ * (y_pred - nu)
+    foc = (y_true * (1 - z.sigmoid()) + (1 - y_true) * z.sigmoid()) ** gamma
+    lmb = y_true + (1 - y_true) / (lambda_ + 1e-10)
+    pc = 1 / (N_TARGETS * positive_count + 1e-10)
+    pi = torch.sum(y_true / (N_TARGETS * positive_count + 1e-10), dim=-1)
     r = torch.outer(1 / (pi + 1e-10), pc)
     r_hat = alpha + torch.sigmoid(beta * (r - mu))
-    bce = (
-        y_true * torch.log1p(torch.exp(- y_pred))
-        + (1 - y_true) * torch.log1p(torch.exp(y_pred))
+    bce = nn.functional.binary_cross_entropy_with_logits(
+        z, y_true, reduction="none"
     )
-    return torch.mean(r_hat * pt * bce)
+    return torch.mean(r_hat * lmb * foc * bce)
 
 
-def focal_loss(
+def focal_loss_with_logits(
     y_pred: Tensor,
     y_true: Tensor,
     gamma: float = 2.0,
@@ -274,12 +292,15 @@ def focal_loss(
 
         Focal Loss for Dense Object Detection
     """
-    pt = y_true * y_pred + (1 - y_true) * (1 - y_pred)
-    pt = (1 - pt) ** gamma
-    bce = nn.functional.binary_cross_entropy(y_pred, y_true, reduction="none")
-    return torch.mean(pt * bce)
+    p = y_pred.sigmoid()
+    pf = (y_true * (1 - p) + (1 - y_true) * p) ** gamma
+    bce = nn.functional.binary_cross_entropy_with_logits(
+        y_pred, y_true, reduction="none"
+    )
+    return torch.mean(pf * bce)
 
-def rebalanced_binary_cross_entropy(
+
+def rebalanced_binary_cross_entropy_with_logits(
     y_pred: Tensor,
     y_true: Tensor,
     positive_count: Tensor,
@@ -295,17 +316,16 @@ def rebalanced_binary_cross_entropy(
     """
     # positive_count: (C,), pc: (C,), pi: (N,) => r: (N, C)
     pc = 1 / (N_TARGETS * (positive_count + 1e-10))
-    pi = torch.sum(y_true / (positive_count + 1e-10), dim=-1) / N_TARGETS
+    pi = torch.sum(y_true / (N_TARGETS * positive_count + 1e-10), dim=-1)
     r = torch.outer(1 / (pi + 1e-10), pc)
     r_hat = alpha + torch.sigmoid(beta * (r - mu))
-    bce = (
-        y_true * torch.log1p(torch.exp(- y_pred))
-        + (1 - y_true) * torch.log1p(torch.exp(y_pred))
+    bce = nn.functional.binary_cross_entropy_with_logits(
+        y_pred, y_true, reduction="none"
     )
     return torch.mean(r_hat * bce)
 
 
-def weighted_binary_cross_entropy(
+def weighted_binary_cross_entropy_with_logits(
     y_pred: Tensor, y_true: Tensor, positive_ratio: Tensor
 ) -> Tensor:
     """
@@ -316,8 +336,8 @@ def weighted_binary_cross_entropy(
     `positive_ratio`:
     $$
         L = - \\frac{1}{2} \\left(
-            \\frac{1}{r_p} y \\log x
-            + \\frac{1}{1-r_p} (1-y) \\log (1-x)
+            \\frac{1}{r_p} y \\log \\sigma(x)
+            + \\frac{1}{1-r_p} (1-y) \\log (1-\\sigma(x))
         \\right)
     $$
     The idea is that if $r_p$ is small (i.e. small positive class, large
@@ -330,10 +350,9 @@ def weighted_binary_cross_entropy(
     See also:
         https://pytorch.org/docs/stable/generated/torch.nn.BCELoss.html
     """
-    u = 1 / (positive_ratio + 1e-10)
-    v = 1 / (1 - positive_ratio + 1e-10)
-    # Using nn.functional.binary_cross_entropy is more numerically stable than
-    # home-baking it, whence this little hack
-    bce = nn.functional.binary_cross_entropy(y_pred, y_true, reduction="none")
-    k = u * y_pred + v * (1 - y_pred)
-    return 0.5 * torch.mean(k * bce)
+    u, v = 1 / (positive_ratio + 1e-10), 1 / (1 - positive_ratio + 1e-10)
+    w = y_true * u + (1 - y_true) * v
+    bce = nn.functional.binary_cross_entropy_with_logits(
+        y_pred, y_true, reduction="none"
+    )
+    return 0.5 * torch.mean(w * bce)

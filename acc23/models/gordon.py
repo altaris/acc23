@@ -118,6 +118,7 @@ class Gordon(BaseMultilabelClassifier):
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
         self.save_hyperparameters()
+        # self.automatic_optimization = False
         n_features = 256
         self._module_a = nn.Sequential(
             ResNetLinearLayer(N_FEATURES, 256),
@@ -146,8 +147,10 @@ class Gordon(BaseMultilabelClassifier):
         )
         self._module_d = nn.Sequential(
             nn.Linear(2 * n_features, N_TARGETS),
-            nn.Sigmoid(),
         )
+        # for p in self.parameters():
+        #     if p.ndim >= 2:
+        #         torch.nn.init.xavier_normal_(p)
         self.example_input_array = (
             torch.zeros((32, N_FEATURES)),
             torch.zeros((32, N_CHANNELS, IMAGE_RESIZE_TO, IMAGE_RESIZE_TO)),

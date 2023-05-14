@@ -80,7 +80,7 @@ class Ampere(BaseMultilabelClassifier):
             ResNetLinearLayer(256, 256),
             ResNetLinearLayer(256, 256),
             ResNetLinearLayer(256, 64),
-            ResNetLinearLayer(64, N_TARGETS, last_activation="sigmoid"),
+            ResNetLinearLayer(64, N_TARGETS),
         )
         # for p in self.parameters():
         #     if p.ndim >= 2:

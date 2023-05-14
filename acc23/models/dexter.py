@@ -52,7 +52,7 @@ class Dexter(BaseMultilabelClassifier):
             ResNetLinearLayer(128, 128),
             ResNetLinearLayer(128, 128),
             ResNetLinearLayer(128, 64),
-            ResNetLinearLayer(64, N_TARGETS, last_activation="sigmoid"),
+            ResNetLinearLayer(64, N_TARGETS),
         )
         self.example_input_array = (
             torch.zeros((32, N_FEATURES)),

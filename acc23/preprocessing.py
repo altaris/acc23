@@ -20,7 +20,7 @@ from sklearn.preprocessing import (
 )
 from sklearn_pandas import DataFrameMapper
 from sklearn_pandas.pipeline import make_transformer_pipeline
-from torchvision.transforms.functional import normalize, pad, resize
+from torchvision.transforms.functional import pad, resize
 
 from acc23.constants import (
     ALLERGENS,
@@ -229,13 +229,13 @@ def load_image(path: Union[str, Path]) -> torch.Tensor:
     arr = torch.Tensor(np.asarray(img))  # (W, H, C)
     arr = arr.permute(2, 1, 0)  # (C, H, W)
     arr = arr.to(torch.float32)
-    # arr -= arr.min()
-    # arr /= arr.max()
+    arr -= arr.min()
+    arr /= arr.max()
     s = 1400
     _, h, w = arr.shape
     arr = pad(arr, (0, 0, s - w, s - h), float(arr.mean()))
     arr = resize(arr, (IMAGE_RESIZE_TO, IMAGE_RESIZE_TO), antialias=True)
-    arr = normalize(arr, [0] * N_CHANNELS, [1] * N_CHANNELS)
+    # arr = normalize(arr, [0] * N_CHANNELS, [1] * N_CHANNELS)
     return arr
 
 
