@@ -54,13 +54,14 @@ def evaluate_on_test_dataset(
 
 def output_to_dataframe(y: Tensor) -> pd.DataFrame:
     """
-    Converts a raw model output, which is a `(N, T)` tensor, with `T` being the
-    number of targets (see `acc23.preprocessing.TARGETS`), to a pandas
-    dataframe. The 'fake' targets of `acc23.preprocessing.TARGETS` are
+    Converts a raw model output logits, which is a `(N, T)` tensor, with `T`
+    being the number of targets (see `acc23.preprocessing.TARGETS`), to a
+    pandas dataframe. The 'fake' targets of `acc23.preprocessing.TARGETS` are
     recalculated here. The `trustii_id` and `Patient_ID` columns are not added.
     """
+
     arr = y.cpu().detach().numpy()
-    arr = (arr > 0.5).astype(int)
+    arr = (arr > 0).astype(int)
     df = pd.DataFrame(data=arr, columns=TARGETS)
     # df["Allergy_Present"] = df.sum(axis=1).clip(0, 1)
     # df["Respiratory_Allergy"] = (
