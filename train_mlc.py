@@ -63,9 +63,10 @@ def main():
         root_dir="out",
         name=name,
         early_stopping_kwargs={
+            "check_finite": True,
+            "mode": "max",
             "monitor": "val/f1",
             "patience": 25,
-            "mode": "max",
         },
     )
 

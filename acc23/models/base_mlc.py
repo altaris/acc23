@@ -13,7 +13,11 @@ from sklearn.metrics import (
     recall_score,
 )
 
-from acc23.constants import POSITIVE_TARGET_RATIOS
+from acc23.constants import (
+    N_TARGETS,
+    POSITIVE_TARGET_RATIOS,
+    POSITIVE_TARGET_COUNTS,
+)
 
 from .utils import concat_tensor_dict
 
@@ -57,11 +61,15 @@ class BaseMultilabelClassifier(pl.LightningModule):
         y_true_np = y_true.cpu().detach().numpy()
         y_pred_np = y_pred.cpu().detach().numpy() > 0.5
         # w = 1
-        bce_weights = Tensor(POSITIVE_TARGET_RATIOS).to(y_pred.device)
+        positive_count = Tensor(POSITIVE_TARGET_COUNTS).to(y_pred.device)
+        positive_ratio = Tensor(POSITIVE_TARGET_RATIOS).to(y_pred.device)
         loss = (
             # nn.functional.mse_loss(y_pred, y_true)
             # nn.functional.binary_cross_entropy(y_pred, y_true)
-            weighted_binary_cross_entropy(y_pred, y_true, bce_weights)
+            # weighted_binary_cross_entropy(y_pred, y_true, positive_ratio)
+            # rebalanced_binary_cross_entropy(y_pred, y_true, positive_count)
+            # focal_loss(y_pred, y_true)
+            distribution_balanced_loss(y_pred, y_true, positive_count)
             # bp_mll_loss(y_pred, y_true)
             # - w * continuous_f1_score(y_pred, y_true)
         )
@@ -137,6 +145,26 @@ def bp_mll_loss(y_pred: Tensor, y_true: Tensor, *_, **__) -> Tensor:
     #             assert s[i, j, k] == y_true[i, j] * (1 - y_true[i, k])
     #             assert a[i, j, k] == y_pred[i, j] - y_pred[i, k]
 
+def class_balanced_loss(
+    y_pred: Tensor,
+    y_true: Tensor,
+    positive_count: Tensor,
+    beta: float = 10.0,
+    gamma: float = 2.0,
+) -> Tensor:
+    """
+    Implementation of the class-balanced loss of
+
+        Y. Cui, M. Jia, T. -Y. Lin, Y. Song and S. Belongie, "Class-Balanced
+        Loss Based on Effective Number of Samples," 2019 IEEE/CVF Conference on
+        Computer Vision and Pattern Recognition (CVPR), Long Beach, CA, USA,
+        2019, pp. 9260-9269, doi: 10.1109/CVPR.2019.00949.
+    """
+    r = (1 - beta) / (1 - beta ** positive_count)
+    pt = y_true * y_pred + (1 - y_true) * (1 - y_pred)
+    pt = (1 - pt) ** gamma
+    bce = nn.functional.binary_cross_entropy(y_pred, y_true, reduction="none")
+    return torch.mean(r * pt * bce)
 
 def continuous_hamming_loss(
     y_pred: Tensor, y_true: Tensor, *_, **__
@@ -207,23 +235,105 @@ def continuous_recall(y_pred: Tensor, y_true: Tensor, *_, **__) -> Tensor:
     return torch.mean(tp / (p + 1e-10))
 
 
-def weighted_binary_cross_entropy(
-    y_pred: Tensor, y_true: Tensor, w: Tensor
+def distribution_balanced_loss(
+    y_pred: Tensor,
+    y_true: Tensor,
+    positive_count: Tensor,
+    alpha: float = 0.1,
+    beta: float = 10.0,
+    mu: float = 0.3,
+    gamma: float = 2.0,
+    lambda_: float = 5.0,
+    kappa: float = 5e-3,
 ) -> Tensor:
     """
-    Binary crossentropy loss that incorporates positive class weights. Use this
-    in your fight against class imbalance. If `y_pred` and `y_true` have shape
-    `(N, C)`, then `w` must have shape `(C,)`, where `C` is the number of
-    classes.
+    A mix between focal loss (`acc23.models.base_mlc.focal_loss`) and
+    rebalanced cross entropy
+    (`acc23.models.base_mlc.rebalanced_binary_cross_entropy`).
+    """
+    pt = y_true * y_pred + (1 - y_true) * (1 - y_pred)
+    pt = (1 - pt) ** gamma
+    pc = 1 / (N_TARGETS * (positive_count + 1e-10))
+    pi = torch.sum(y_true / (positive_count + 1e-10), dim=-1) / N_TARGETS
+    r = torch.outer(1 / (pi + 1e-10), pc)
+    r_hat = alpha + torch.sigmoid(beta * (r - mu))
+    bce = (
+        y_true * torch.log1p(torch.exp(- y_pred))
+        + (1 - y_true) * torch.log1p(torch.exp(y_pred))
+    )
+    return torch.mean(r_hat * pt * bce)
+
+
+def focal_loss(
+    y_pred: Tensor,
+    y_true: Tensor,
+    gamma: float = 2.0,
+) -> Tensor:
+    """
+    Balanced-focal loss of
+
+        Focal Loss for Dense Object Detection
+    """
+    pt = y_true * y_pred + (1 - y_true) * (1 - y_pred)
+    pt = (1 - pt) ** gamma
+    bce = nn.functional.binary_cross_entropy(y_pred, y_true, reduction="none")
+    return torch.mean(pt * bce)
+
+def rebalanced_binary_cross_entropy(
+    y_pred: Tensor,
+    y_true: Tensor,
+    positive_count: Tensor,
+    alpha: float = 0.1,
+    beta: float = 10.0,
+    mu: float = 0.3,
+) -> Tensor:
+    """
+    Implementation of
+
+        Distribution-Balanced Loss for Multi-Label Classification in
+        Long-Tailed Datasets
+    """
+    # positive_count: (C,), pc: (C,), pi: (N,) => r: (N, C)
+    pc = 1 / (N_TARGETS * (positive_count + 1e-10))
+    pi = torch.sum(y_true / (positive_count + 1e-10), dim=-1) / N_TARGETS
+    r = torch.outer(1 / (pi + 1e-10), pc)
+    r_hat = alpha + torch.sigmoid(beta * (r - mu))
+    bce = (
+        y_true * torch.log1p(torch.exp(- y_pred))
+        + (1 - y_true) * torch.log1p(torch.exp(y_pred))
+    )
+    return torch.mean(r_hat * bce)
+
+
+def weighted_binary_cross_entropy(
+    y_pred: Tensor, y_true: Tensor, positive_ratio: Tensor
+) -> Tensor:
+    """
+    Binary crossentropy loss that takes the positive class ratio into account.
+    Use this in your fight against class imbalance. If `y_pred` and `y_true`
+    have shape `(N, T)`, then `positive_ratio` must have shape `(T,)`, where
+    `T` is the number of targets. The formula is as follows, where $r_p$ is
+    `positive_ratio`:
+    $$
+        L = - \\frac{1}{2} \\left(
+            \\frac{1}{r_p} y \\log x
+            + \\frac{1}{1-r_p} (1-y) \\log (1-x)
+        \\right)
+    $$
+    The idea is that if $r_p$ is small (i.e. small positive class, large
+    negative class), then false negatives get penalized more. Conversely, if
+    $r_p$ is large (i.e. large positive class, small negative class), then
+    false positives get penalized more. The factor of $1/2$ is so that if the
+    classes are perfectly balanced (i.e. $r_p = 1/2$), then $L$ matches the
+    usual binary cross entropy loss.
 
     See also:
         https://pytorch.org/docs/stable/generated/torch.nn.BCELoss.html
-
-    TODO:
-        Training with this makes some NN weights to become NaN... :/
     """
-    b = nn.functional.binary_cross_entropy(y_pred, y_true, reduction="none")
-    k = y_pred * w + (1 - y_pred) * (1 - w)
-    # The factor if 2 is so that if the classes are perfectly balanced (w =
-    # .5), then this matches the usual bce loss.
-    return 2 * torch.mean(k * b)
+    u = 1 / (positive_ratio + 1e-10)
+    v = 1 / (1 - positive_ratio + 1e-10)
+    # Using nn.functional.binary_cross_entropy is more numerically stable than
+    # home-baking it, whence this little hack
+    bce = nn.functional.binary_cross_entropy(y_pred, y_true, reduction="none")
+    k = u * y_pred + v * (1 - y_pred)
+    return 0.5 * torch.mean(k * bce)
