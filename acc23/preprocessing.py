@@ -23,7 +23,7 @@ from sklearn_pandas.pipeline import make_transformer_pipeline
 from torchvision.transforms.functional import pad, resize
 
 from acc23.constants import (
-    ALLERGENS,
+    IGES,
     CLASSES,
     IMAGE_RESIZE_TO,
     N_CHANNELS,
@@ -95,7 +95,7 @@ def get_dtypes() -> dict:
         "General_cofactors": str,  # Comma-sep lst of codes
         "Treatment_of_atopic_dematitis": str,  # Comma-sep lst of treatment codes
     }
-    b = {allergen: np.float32 for allergen in ALLERGENS}
+    b = {allergen: np.float32 for allergen in IGES}
     c = {target: np.uint8 for target in TARGETS}
     return {**a, **b, **c}
 
@@ -134,8 +134,8 @@ def impute_dataframe(df: pd.DataFrame) -> pd.DataFrame:
     logging.debug("Imputing dataframe")
 
     # PMF imputation for allergen columns
-    a = df[ALLERGENS].to_numpy()
-    df[ALLERGENS] = pmf_impute(
+    a = df[IGES].to_numpy()
+    df[IGES] = pmf_impute(
         a,
         30,
         sigma_x=0.1,
@@ -148,7 +148,7 @@ def impute_dataframe(df: pd.DataFrame) -> pd.DataFrame:
     imputers = [
         (["Age"], SimpleImputer()),
         (["Gender"], SimpleImputer(strategy="most_frequent")),
-        # (ALLERGENS, KNNImputer()),
+        # (IGES, KNNImputer()),
     ]
     # Check that non-impute columns don't have nans
     impute_columns: List[str] = []
@@ -419,9 +419,7 @@ def preprocess_dataframe(df: pd.DataFrame) -> pd.DataFrame:
             ),
         ),
     ]
-    allergen_trasforms = [
-        ([allergen], StandardScaler()) for allergen in ALLERGENS
-    ]
+    allergen_trasforms = [([allergen], StandardScaler()) for allergen in IGES]
     target_transforms = [
         ([target], FunctionTransformer())
         for target in TARGETS
@@ -434,10 +432,10 @@ def preprocess_dataframe(df: pd.DataFrame) -> pd.DataFrame:
     df = mapper.fit_transform(df)
 
     # Global allergen scaling
-    # a = df[ALLERGENS].to_numpy()
+    # a = df[IGES].to_numpy()
     # nn = ~np.isnan(a)
     # m, s = a.mean(where=nn), a.std(where=nn)
-    # df[ALLERGENS] = (df[ALLERGENS] - m) / (s + 1e-10)
+    # df[IGES] = (df[IGES] - m) / (s + 1e-10)
     # More specific transforms
     for _, row in df.iterrows():
         # Fix cofactors https://app.trustii.io/datasets/1439/forums/46/messages
