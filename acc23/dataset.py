@@ -73,7 +73,7 @@ class ACCDataset(Dataset):
         img = self.image_transform(img)
         return x, y, img
 
-    def test_train_split_dl(
+    def train_test_split_dl(
         self,
         ratio: float = 0.8,
         split_kwargs: Optional[dict] = None,
@@ -91,6 +91,9 @@ class ACCDataset(Dataset):
                 "pin_memory": True,
                 "num_workers": 16,
             }
+
+        If `ratio = 1`, then the while dataset is returned twice (into 2
+        different dataloaders).
         """
         split_kwargs = split_kwargs or {}
         dataloader_kwargs = dataloader_kwargs or {
@@ -98,9 +101,14 @@ class ACCDataset(Dataset):
             "pin_memory": True,
             "num_workers": 16,
         }
-        test, train = torch.utils.data.random_split(
-            self, lengths=[ratio, 1.0 - ratio], **split_kwargs
-        )
+        if not (0.0 < ratio <= 1.0):
+            raise ValueError("Train/test split ratio must be > 0 and <= 1")
+        if ratio < 1.0:
+            test, train = torch.utils.data.random_split(
+                self, lengths=[ratio, 1.0 - ratio], **split_kwargs
+            )
+        else:
+            test, train = self, self
         return DataLoader(test, **dataloader_kwargs), DataLoader(
             train, **dataloader_kwargs
         )
@@ -160,7 +168,7 @@ class ImageFolderDataset(Dataset):
         img = self.image_transform(img)
         return img
 
-    def test_train_split_dl(
+    def train_test_split_dl(
         self,
         ratio: float = 0.8,
         split_kwargs: Optional[dict] = None,
@@ -178,17 +186,24 @@ class ImageFolderDataset(Dataset):
                 "pin_memory": True,
                 "num_workers": 8,
             }
+
+        If `ratio = 1`, then the while dataset is returned twice (into 2
+        different dataloaders).
         """
-        a = int(len(self) * ratio)
         split_kwargs = split_kwargs or {}
         dataloader_kwargs = dataloader_kwargs or {
             "batch_size": 32,
             "pin_memory": True,
             "num_workers": 8,
         }
-        test, train = torch.utils.data.random_split(
-            self, lengths=[a, len(self) - a], **split_kwargs
-        )
+        if not (0.0 < ratio <= 1.0):
+            raise ValueError("Train/test split ratio must be > 0 and <= 1")
+        if ratio < 1.0:
+            test, train = torch.utils.data.random_split(
+                self, lengths=[ratio, 1.0 - ratio], **split_kwargs
+            )
+        else:
+            test, train = self, self
         return DataLoader(test, **dataloader_kwargs), DataLoader(
             train, **dataloader_kwargs
         )
