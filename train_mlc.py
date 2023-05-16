@@ -17,6 +17,7 @@ from acc23.utils import last_checkpoint_path, train_model
 
 def main():
     name = Model.__name__.lower()
+    logging.info("Training model '{}'", name)
 
     if name == "dexter":
 
@@ -27,6 +28,7 @@ def main():
         ckpt = last_checkpoint_path(
             "out/tb_logs/autoencoder/version_1/checkpoints/"
         )
+        logging.info("Loading autoencoder from", ckpt)
         ae = AE.load_from_checkpoint(ckpt)
         ae.eval()
         ae.requires_grad_(False)
@@ -40,6 +42,7 @@ def main():
             return z
 
         ckpt = last_checkpoint_path("out/tb_logs/vae/version_2/checkpoints/")
+        logging.info("Loading vae from", ckpt)
         vae = VAE.load_from_checkpoint(ckpt)
         vae.eval()
         vae.requires_grad_(False)
@@ -55,7 +58,7 @@ def main():
         image_transform,
         load_csv_kwargs={"preprocess": False, "impute": False},
     )
-    train, val = ds.test_train_split_dl(ratio=0.9)
+    train, val = ds.train_test_split_dl(ratio=0.9)
     model = train_model(
         model,
         train,

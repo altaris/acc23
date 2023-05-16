@@ -8,7 +8,7 @@ import torch
 from diffusers.models.vae import DiagonalGaussianDistribution
 from torch import Tensor, nn
 
-from acc23.constants import IMAGE_RESIZE_TO, N_CHANNELS
+from acc23.constants import IMAGE_SIZE, N_CHANNELS
 from acc23.models.utils import (
     ResNetEncoderLayer,
     resnet_decoder,
@@ -28,8 +28,8 @@ class AE(pl.LightningModule):
         self,
         input_shape: Tuple[int, int, int] = (
             N_CHANNELS,
-            IMAGE_RESIZE_TO,
-            IMAGE_RESIZE_TO,
+            IMAGE_SIZE,
+            IMAGE_SIZE,
         ),
         latent_dim: int = 256,
         n_blocks: int = 1,
@@ -134,8 +134,8 @@ class VAE(pl.LightningModule):
         self,
         input_shape: Tuple[int, int, int] = (
             N_CHANNELS,
-            IMAGE_RESIZE_TO,
-            IMAGE_RESIZE_TO,
+            IMAGE_SIZE,
+            IMAGE_SIZE,
         ),
         latent_dim: int = 256,
         n_blocks: int = 1,

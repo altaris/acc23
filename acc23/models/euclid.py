@@ -10,7 +10,7 @@ import torch
 from torch import Tensor, nn
 from transformers.activations import get_activation
 
-from acc23.constants import IMAGE_RESIZE_TO, N_CHANNELS, N_FEATURES, N_TARGETS
+from acc23.constants import IMAGE_SIZE, N_CHANNELS, N_FEATURES, N_TARGETS
 
 from .base_mlc import BaseMultilabelClassifier
 from .utils import ResNetLinearLayer, concat_tensor_dict
@@ -98,7 +98,7 @@ class Euclid(BaseMultilabelClassifier):
                 torch.nn.init.xavier_normal_(p)
         self.example_input_array = (
             torch.zeros((32, N_FEATURES)),
-            torch.zeros((32, N_CHANNELS, IMAGE_RESIZE_TO, IMAGE_RESIZE_TO)),
+            torch.zeros((32, N_CHANNELS, IMAGE_SIZE, IMAGE_SIZE)),
         )
         self.forward(*self.example_input_array)
 

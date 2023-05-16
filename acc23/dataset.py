@@ -12,7 +12,7 @@ import torch
 from loguru import logger as logging
 from torch.utils.data import DataLoader, Dataset
 
-from acc23.constants import IMAGE_RESIZE_TO, N_CHANNELS, TARGETS
+from acc23.constants import IMAGE_SIZE, N_CHANNELS, TARGETS
 from acc23.preprocessing import load_csv, load_image
 
 Transform_t = Callable[[torch.Tensor], torch.Tensor]
@@ -69,7 +69,7 @@ class ACCDataset(Dataset):
         try:
             img = load_image(self.image_dir_path / p)
         except:
-            img = torch.zeros((N_CHANNELS, IMAGE_RESIZE_TO, IMAGE_RESIZE_TO))
+            img = torch.zeros((N_CHANNELS, IMAGE_SIZE, IMAGE_SIZE))
         img = self.image_transform(img)
         return x, y, img
 
