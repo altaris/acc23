@@ -42,25 +42,27 @@ class BaseMultilabelClassifier(pl.LightningModule):
         y: Dict[str, Tensor],
         img: Tensor,
         stage: Optional[str] = None,
-    ) -> Tuple[Tensor, float, float, float, float, float]:
+    ) -> Tensor:
         """
-        Computes and returns various scores and losses. In order:
-        1. Binary cross-entropy (which is the loss used during training),
+        Computes various scores and losses:
+        1. The loss used for training,
         2. Accuracy score,
         3. Hamming loss,
         4. Precision score,
         5. Recall score,
-        6. F1 score.
+        6. F1 score,
+        6. minimal F1 score (across targets).
 
         Furthermore, if `stage` is given, these values are also logged to
         tensorboard under `<stage>/loss`, `<stage>/acc`, `<stage>/ham` (lol),
-        `<stage>/prec`, `<stage>/rec`, and `<stage>/f1` respectively.
+        `<stage>/prec`, `<stage>/rec`, `<stage>/f1`, and `<stage>/f1_min`
+        respectively.
         """
         y_true = concat_tensor_dict(y).float().to(self.device)  # type: ignore
         y_pred = self(x, img)
         y_true_np = y_true.cpu().detach().numpy()
         y_pred_np = y_pred.cpu().detach().numpy() > 0
-        # w = 1
+        w = 2
         positive_count = Tensor(POSITIVE_TARGET_COUNTS).to(y_pred.device)
         # positive_ratio = Tensor(POSITIVE_TARGET_RATIOS).to(y_pred.device)
         loss = (
@@ -69,15 +71,15 @@ class BaseMultilabelClassifier(pl.LightningModule):
             # weighted_binary_cross_entropy_with_logits(
             #     y_pred, y_true, positive_ratio
             # )
-            rebalanced_binary_cross_entropy_with_logits(
-                y_pred, y_true, positive_count
-            )
-            # focal_loss_with_logits(y_pred, y_true)
+            # rebalanced_binary_cross_entropy_with_logits(
+            #     y_pred, y_true, positive_count
+            # )
+            focal_loss_with_logits(y_pred, y_true)
             # distribution_balanced_loss_with_logits(
             #     y_pred, y_true, positive_count
             # )
             # bp_mll_loss(y_pred.sigmoid(), y_true)
-            # - w * continuous_f1_score(y_pred.sigmoid(), y_true)
+            - w * continuous_f1_score(y_pred.sigmoid(), y_true)
         )
         acc = accuracy_score(y_true_np, y_pred_np)
         ham = hamming_loss(y_true_np, y_pred_np)
@@ -90,6 +92,9 @@ class BaseMultilabelClassifier(pl.LightningModule):
         prec = precision_score(**kw)
         rec = recall_score(**kw)
         f1 = f1_score(**kw)
+        f1_min = f1_score(
+            y_true_np, y_pred_np, zero_division=0, average=None
+        ).min()
         if stage is not None:
             self.log_dict(
                 {
@@ -102,31 +107,25 @@ class BaseMultilabelClassifier(pl.LightningModule):
             self.log_dict(
                 {
                     f"{stage}/acc": acc,
+                    f"{stage}/f1_min": f1_min,
                     f"{stage}/ham": ham,
                     f"{stage}/prec": prec,
                     f"{stage}/rec": rec,
                 },
                 sync_dist=True,
             )
-        return (
-            loss,
-            float(acc),
-            float(ham),
-            float(prec),
-            float(rec),
-            float(f1),
-        )
+        return loss
 
     def training_step(self, batch, *_, **__):
         x, y, img = batch
-        return self.evaluate(x, y, img, "train")[0]
+        return self.evaluate(x, y, img, "train")
 
     # Set self.automatic_optimization = False in __init__ to use this
     # def training_step(self, batch, *_, **__):
     #     x, y, img = batch
     #     opt = self.optimizers()
     #     opt.zero_grad()
-    #     loss = self.evaluate(x, y, img, "train")[0]
+    #     loss = self.evaluate(x, y, img, "train")
     #     self.manual_backward(loss)
     #     opt.step()
     #     a = []
@@ -137,7 +136,7 @@ class BaseMultilabelClassifier(pl.LightningModule):
 
     def validation_step(self, batch, *_, **__):
         x, y, img = batch
-        return self.evaluate(x, y, img, "val")[0]
+        return self.evaluate(x, y, img, "val")
 
 
 def bp_mll_loss(y_pred: Tensor, y_true: Tensor, *_, **__) -> Tensor:
@@ -293,11 +292,11 @@ def focal_loss_with_logits(
         Focal Loss for Dense Object Detection
     """
     p = y_pred.sigmoid()
-    pf = (y_true * (1 - p) + (1 - y_true) * p) ** gamma
+    foc = (y_true * (1 - p) + (1 - y_true) * p) ** gamma
     bce = nn.functional.binary_cross_entropy_with_logits(
         y_pred, y_true, reduction="none"
     )
-    return torch.mean(pf * bce)
+    return torch.mean(foc * bce)
 
 
 def rebalanced_binary_cross_entropy_with_logits(

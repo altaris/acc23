@@ -12,7 +12,7 @@ from transformers.models.resnet.modeling_resnet import (
 from transformers.activations import get_activation
 
 
-from acc23.constants import IMAGE_RESIZE_TO
+from acc23.constants import IMAGE_SIZE
 
 
 class ResNetConvTransposeLayer(nn.Module):
@@ -192,7 +192,7 @@ def basic_encoder(
     in_channels: int,
     out_channels: List[int],
     activation: str = "silu",
-    input_size: int = IMAGE_RESIZE_TO,
+    input_size: int = IMAGE_SIZE,
 ) -> Tuple[nn.Sequential, int]:
     """
     Basic image encoder that is just a succession of (non skipped) downsampling
@@ -318,7 +318,7 @@ def resnet_encoder(
     out_channels: List[int],
     activation: str = "silu",
     n_blocks: int = 1,
-    input_size: int = IMAGE_RESIZE_TO,
+    input_size: int = IMAGE_SIZE,
 ) -> Tuple[nn.Sequential, int]:
     """
     Basic image encoder that is just a succession of resnet encoders (see

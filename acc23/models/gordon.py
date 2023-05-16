@@ -14,7 +14,7 @@ from torch import Tensor, nn
 from transformers.activations import get_activation
 from transformers.models.resnet.modeling_resnet import ResNetConvLayer
 
-from acc23.constants import IMAGE_RESIZE_TO, N_CHANNELS, N_FEATURES, N_TARGETS
+from acc23.constants import IMAGE_SIZE, N_CHANNELS, N_FEATURES, N_TARGETS
 
 from .base_mlc import BaseMultilabelClassifier
 from .utils import ResNetLinearLayer, concat_tensor_dict
@@ -125,12 +125,26 @@ class Gordon(BaseMultilabelClassifier):
             ResNetLinearLayer(256, n_features),
         )
         self._module_b = nn.Sequential(
-            nn.MaxPool2d(9, 2, 4),  # IMAGE_RESIZE_TO = 512 -> 256
-            nn.Conv2d(N_CHANNELS, 8, 3, 1, 1, bias=False),  # -> 256
+            nn.MaxPool2d(5, 1, 2),  # IMAGE_RESIZE_TO = 512 -> 512
+            nn.Conv2d(N_CHANNELS, 8, 4, 2, 1, bias=False),  # -> 256
             nn.BatchNorm2d(8),
             nn.SiLU(),
-            nn.MaxPool2d(7, 1, 3),  # 256 -> 256
+            # nn.MaxPool2d(3, 1, 1),  # 256 -> 256
         )
+        # self._module_c = FusionEncoder(
+        #     in_channels=8,
+        #     out_channels=[
+        #         8,  # 256 -> 128
+        #         16,  # -> 64
+        #         16,  # -> 32
+        #         32,  # -> 16
+        #         32,  # -> 8
+        #         64,  # -> 4
+        #         128,  # -> 2
+        #         n_features,  # -> 1
+        #     ],
+        #     n_features=n_features,
+        # )
         self._module_c = FusionEncoder(
             in_channels=8,
             out_channels=[
@@ -153,7 +167,7 @@ class Gordon(BaseMultilabelClassifier):
         #         torch.nn.init.xavier_normal_(p)
         self.example_input_array = (
             torch.zeros((32, N_FEATURES)),
-            torch.zeros((32, N_CHANNELS, IMAGE_RESIZE_TO, IMAGE_RESIZE_TO)),
+            torch.zeros((32, N_CHANNELS, IMAGE_SIZE, IMAGE_SIZE)),
         )
         self.forward(*self.example_input_array)
 

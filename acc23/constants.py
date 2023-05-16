@@ -597,7 +597,7 @@ N_TARGETS = len(TARGETS)
 """Number of target columns"""
 
 
-IMAGE_RESIZE_TO = 512
+IMAGE_SIZE = 512
 """
 By default, images will be resized to `IMAGE_RESIZE_TO x IMAGE_RESIZE_TO`. See
 also `ACCDataset.__getitem__` and
