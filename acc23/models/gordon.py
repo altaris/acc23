@@ -1,6 +1,6 @@
 """
 ACC23 main multi-classification model: prototype "Gordon". Fusion model
-inspired by
+**inspired** by
 
     Y. Liu, H. -P. Lu and C. -H. Lai, "A Novel Attention-Based Multi-Modal
     Modeling Technique on Mixed Type Data for Improving TFT-LCD Repair
@@ -9,7 +9,7 @@ inspired by
 """
 __docformat__ = "google"
 
-from typing import Any, Dict, List, Union
+from typing import Any, Dict, List, Tuple, Union
 
 import torch
 from torch import Tensor, nn
@@ -55,8 +55,6 @@ class ConvFusionLayer(nn.Module):
 
     def forward(self, x: Tensor, h: Tensor, *_, **__) -> Tensor:
         """Override"""
-        # print(">", x.shape)
-        # print(self.block_1(x).shape)
         u = self.block_1(x) * x
         u = self.block_2(u)
         v = self.linear(h)
@@ -122,7 +120,6 @@ class Gordon(BaseMultilabelClassifier):
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
         self.save_hyperparameters()
-        # self.automatic_optimization = False
         n_features = 256
         self._module_a = nn.Sequential(
             ResNetLinearLayer(N_FEATURES, 256),
@@ -181,8 +178,19 @@ class Gordon(BaseMultilabelClassifier):
         img: Tensor,
         *_,
         **__,
-    ):
-        # One operation per line for easier troubleshooting
+    ) -> Tuple[Tensor, Union[Tensor, float]]:
+        """
+        Args:
+            x (Tensor): Tabular data with shape `(N, N_FEATURES)`, where `N` is
+                the batch size, or alternatively, a string dict, where each key
+                is a `(N,)` tensor.
+            img (Tensor): Batch of images, i.e. a tensor of shape
+                `(N, N_CHANNELS, IMAGE_SIZE, IMAGE_SIZE)`
+
+        Returns:
+            1. Output logits
+            2. An extra loss term (just return 0 if you have nothing to add)
+        """
         if isinstance(x, dict):
             x = concat_tensor_dict(x)
         x = x.float().to(self.device)  # type: ignore
@@ -192,4 +200,4 @@ class Gordon(BaseMultilabelClassifier):
         c = self._module_c(b, a)
         ac = torch.concatenate([a, c], dim=-1)
         d = self._module_d(ac)
-        return d
+        return d, 0

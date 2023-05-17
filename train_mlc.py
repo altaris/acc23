@@ -10,7 +10,7 @@ from torch import Tensor
 
 from acc23.autoencoders import AE, VAE
 from acc23.dataset import ACCDataset
-from acc23.models import Gordon as Model  # SET CORRECT MODEL CLASS HERE
+from acc23.models import Helena as Model  # SET CORRECT MODEL CLASS HERE
 from acc23.postprocessing import evaluate_on_test_dataset
 from acc23.utils import last_checkpoint_path, train_model
 

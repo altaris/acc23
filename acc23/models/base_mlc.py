@@ -1,6 +1,6 @@
 """Base class for multilabel classifiers"""
 
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, Optional
 import pytorch_lightning as pl
 
 import torch
@@ -59,7 +59,7 @@ class BaseMultilabelClassifier(pl.LightningModule):
         respectively.
         """
         y_true = concat_tensor_dict(y).float().to(self.device)  # type: ignore
-        y_pred = self(x, img)
+        y_pred, extra_loss = self(x, img)
         y_true_np = y_true.cpu().detach().numpy()
         y_pred_np = y_pred.cpu().detach().numpy() > 0
         w = 2
@@ -80,6 +80,7 @@ class BaseMultilabelClassifier(pl.LightningModule):
             # )
             # bp_mll_loss(y_pred.sigmoid(), y_true)
             - w * continuous_f1_score(y_pred.sigmoid(), y_true)
+            # + extra_loss
         )
         acc = accuracy_score(y_true_np, y_pred_np)
         ham = hamming_loss(y_true_np, y_pred_np)

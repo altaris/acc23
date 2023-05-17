@@ -5,7 +5,7 @@ VAE.
 """
 __docformat__ = "google"
 
-from typing import Dict, Union
+from typing import Dict, Tuple, Union
 
 import torch
 from torch import Tensor, nn
@@ -55,8 +55,19 @@ class Farzad(BaseMultilabelClassifier):
         z: Tensor,
         *_,
         **__,
-    ):
-        # One operation per line for easier troubleshooting
+    ) -> Tuple[Tensor, Union[Tensor, float]]:
+        """
+        Args:
+            x (Tensor): Tabular data with shape `(N, N_FEATURES)`, where `N` is
+                the batch size, or alternatively, a string dict, where each key
+                is a `(N,)` tensor.
+            z (Tensor): Batch of encoded images, i.e. a tensor of shape
+                `(N, vae_latent_dim)`
+
+        Returns:
+            1. Output logits
+            2. An extra loss term (just return 0 if you have nothing to add)
+        """
         if isinstance(x, dict):
             x = concat_tensor_dict(x)
         x = x.float().to(self.device)  # type: ignore
@@ -64,4 +75,4 @@ class Farzad(BaseMultilabelClassifier):
         a = self._module_a(x)
         az = torch.concatenate([a, z], dim=-1)
         b = self._module_b(az)
-        return b
+        return b, 0.0
