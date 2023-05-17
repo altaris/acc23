@@ -10,7 +10,7 @@ from torch import Tensor, nn
 
 from acc23.constants import IMAGE_SIZE, N_CHANNELS, N_FEATURES, N_TARGETS
 
-from .utils import (
+from .layers import (
     ResNetLinearLayer,
     resnet_encoder,
     concat_tensor_dict,

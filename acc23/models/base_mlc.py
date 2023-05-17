@@ -19,7 +19,7 @@ from acc23.constants import (
     POSITIVE_TARGET_COUNTS,
 )
 
-from .utils import concat_tensor_dict
+from .layers import concat_tensor_dict
 
 
 class BaseMultilabelClassifier(pl.LightningModule):

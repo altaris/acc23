@@ -1,11 +1,10 @@
 """
-ACC23 main multi-classification model: prototype "Gordon". Fusion model
-inspired by
+ACC23 main multi-classification model: prototype "Helena" aka TabVisionNet from
 
     Y. Liu, H. -P. Lu and C. -H. Lai, "A Novel Attention-Based Multi-Modal
-    Modeling Technique on Mixed Type Data for Improving TFT-LCD Repair
-    Process," in IEEE Access, vol. 10, pp. 33026-33036, 2022, doi:
-    10.1109/ACCESS.2022.3158952.
+       Modeling Technique on Mixed Type Data for Improving TFT-LCD Repair
+       Process," in IEEE Access, vol. 10, pp. 33026-33036, 2022, doi:
+       10.1109/ACCESS.2022.3158952.
 """
 __docformat__ = "google"
 
@@ -22,6 +21,7 @@ from .base_mlc import BaseMultilabelClassifier
 from .layers import ResNetLinearLayer, concat_tensor_dict
 
 
+# TODO: consolidate with Gordon
 class ConvFusionLayer(nn.Module):
     """
     See Figure 2 of
@@ -66,6 +66,7 @@ class ConvFusionLayer(nn.Module):
         return x + w
 
 
+# TODO: consolidate with Gordon
 class FusionEncoder(nn.Module):
     """
     Fusion encoder (without attention). It is a succession of blocks that look
@@ -111,7 +112,7 @@ class FusionEncoder(nn.Module):
         return x.flatten(1)
 
 
-class Gordon(BaseMultilabelClassifier):
+class Helena(BaseMultilabelClassifier):
     """See module documentation"""
 
     _module_a: nn.Module  # Dense input branch
