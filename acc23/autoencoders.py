@@ -9,7 +9,7 @@ from diffusers.models.vae import DiagonalGaussianDistribution
 from torch import Tensor, nn
 
 from acc23.constants import IMAGE_SIZE, N_CHANNELS
-from acc23.models.utils import (
+from acc23.models.layers import (
     ResNetEncoderLayer,
     resnet_decoder,
     resnet_encoder,

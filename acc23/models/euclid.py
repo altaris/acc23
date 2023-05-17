@@ -13,7 +13,7 @@ from transformers.activations import get_activation
 from acc23.constants import IMAGE_SIZE, N_CHANNELS, N_FEATURES, N_TARGETS
 
 from .base_mlc import BaseMultilabelClassifier
-from .utils import ResNetLinearLayer, concat_tensor_dict
+from .layers import ResNetLinearLayer, concat_tensor_dict
 
 
 class ConvolutionalBlock(nn.Module):

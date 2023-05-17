@@ -96,22 +96,19 @@ class ACCDataset(Dataset):
         different dataloaders).
         """
         split_kwargs = split_kwargs or {}
-        dataloader_kwargs = dataloader_kwargs or {
+        kw = dataloader_kwargs or {
             "batch_size": 64,
             "pin_memory": True,
             "num_workers": 16,
         }
-        if not (0.0 < ratio <= 1.0):
+        if not 0.0 < ratio <= 1.0:
             raise ValueError("Train/test split ratio must be > 0 and <= 1")
-        if ratio < 1.0:
-            test, train = torch.utils.data.random_split(
-                self, lengths=[ratio, 1.0 - ratio], **split_kwargs
-            )
-        else:
-            test, train = self, self
-        return DataLoader(test, **dataloader_kwargs), DataLoader(
-            train, **dataloader_kwargs
+        if ratio == 1.0:
+            return DataLoader(self, **kw), DataLoader(self, **kw)
+        test, train = torch.utils.data.random_split(
+            self, lengths=[ratio, 1.0 - ratio], **split_kwargs
         )
+        return DataLoader(test, **kw), DataLoader(train, **kw)
 
 
 class ImageFolderDataset(Dataset):
@@ -182,28 +179,25 @@ class ImageFolderDataset(Dataset):
         are
 
             {
-                "batch_size": 32,
+                "batch_size": 64,
                 "pin_memory": True,
-                "num_workers": 8,
+                "num_workers": 16,
             }
 
         If `ratio = 1`, then the while dataset is returned twice (into 2
         different dataloaders).
         """
         split_kwargs = split_kwargs or {}
-        dataloader_kwargs = dataloader_kwargs or {
-            "batch_size": 32,
+        kw = dataloader_kwargs or {
+            "batch_size": 64,
             "pin_memory": True,
-            "num_workers": 8,
+            "num_workers": 16,
         }
-        if not (0.0 < ratio <= 1.0):
+        if not 0.0 < ratio <= 1.0:
             raise ValueError("Train/test split ratio must be > 0 and <= 1")
-        if ratio < 1.0:
-            test, train = torch.utils.data.random_split(
-                self, lengths=[ratio, 1.0 - ratio], **split_kwargs
-            )
-        else:
-            test, train = self, self
-        return DataLoader(test, **dataloader_kwargs), DataLoader(
-            train, **dataloader_kwargs
+        if ratio == 1.0:
+            return DataLoader(self, **kw), DataLoader(self, **kw)
+        test, train = torch.utils.data.random_split(
+            self, lengths=[ratio, 1.0 - ratio], **split_kwargs
         )
+        return DataLoader(test, **kw), DataLoader(train, **kw)

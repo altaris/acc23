@@ -14,7 +14,7 @@ from traitlets import Any
 
 from acc23.constants import N_FEATURES, N_TARGETS
 
-from .utils import (
+from .layers import (
     ResNetLinearLayer,
     concat_tensor_dict,
 )

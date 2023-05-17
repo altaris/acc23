@@ -12,7 +12,7 @@ from torch import Tensor, nn
 
 from acc23.constants import N_FEATURES, N_TARGETS
 
-from .utils import (
+from .layers import (
     concat_tensor_dict,
     ResNetLinearLayer,
 )
