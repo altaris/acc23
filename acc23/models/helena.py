@@ -2,155 +2,49 @@
 ACC23 main multi-classification model: prototype "Helena" aka TabVisionNet from
 
     Y. Liu, H. -P. Lu and C. -H. Lai, "A Novel Attention-Based Multi-Modal
-       Modeling Technique on Mixed Type Data for Improving TFT-LCD Repair
-       Process," in IEEE Access, vol. 10, pp. 33026-33036, 2022, doi:
-       10.1109/ACCESS.2022.3158952.
+    Modeling Technique on Mixed Type Data for Improving TFT-LCD Repair
+    Process," in IEEE Access, vol. 10, pp. 33026-33036, 2022, doi:
+    10.1109/ACCESS.2022.3158952.
 """
 __docformat__ = "google"
 
-from typing import Any, Dict, List, Union
+from typing import Dict, Tuple, Union
 
 import torch
 from torch import Tensor, nn
-from transformers.activations import get_activation
-from transformers.models.resnet.modeling_resnet import ResNetConvLayer
 
 from acc23.constants import IMAGE_SIZE, N_CHANNELS, N_FEATURES, N_TARGETS
 
 from .base_mlc import BaseMultilabelClassifier
-from .layers import ResNetLinearLayer, concat_tensor_dict
-
-
-# TODO: consolidate with Gordon
-class ConvFusionLayer(nn.Module):
-    """
-    See Figure 2 of
-
-        Y. Liu, H. -P. Lu and C. -H. Lai, "A Novel Attention-Based Multi-Modal
-        Modeling Technique on Mixed Type Data for Improving TFT-LCD Repair
-        Process," in IEEE Access, vol. 10, pp. 33026-33036, 2022, doi:
-        10.1109/ACCESS.2022.3158952.
-    """
-
-    block_1: nn.Module
-    block_2: nn.Module
-    conv: nn.Module
-    linear: nn.Module
-
-    def __init__(
-        self, in_channels: int, n_features: int, activation: str = "silu"
-    ) -> None:
-        super().__init__()
-        self.block_1 = nn.Sequential(
-            nn.Conv2d(in_channels, in_channels, 1, 1, 0, bias=False),
-            nn.Softmax(dim=1),
-        )
-        self.block_2 = nn.Sequential(
-            nn.Conv2d(in_channels, in_channels, 1, 1, 0, bias=False),
-            nn.BatchNorm2d(in_channels),
-            get_activation(activation),
-        )
-        self.linear = nn.Linear(n_features, in_channels)
-        self.conv = nn.Conv2d(in_channels, in_channels, 1, 1, 0, bias=False)
-
-    def forward(self, x: Tensor, h: Tensor, *_, **__) -> Tensor:
-        """Override"""
-        # print(">", x.shape)
-        # print(self.block_1(x).shape)
-        u = self.block_1(x) * x
-        u = self.block_2(u)
-        v = self.linear(h)
-        v = torch.stack([v] * u.shape[2] * u.shape[3], dim=-1).reshape(u.shape)
-        w = u + v  # add v along the channels of every location ("pixel") of u
-        w = self.conv(w)
-        return x + w
-
-
-# TODO: consolidate with Gordon
-class FusionEncoder(nn.Module):
-    """
-    Fusion encoder (without attention). It is a succession of blocks that look
-    like
-    1. `ResNetConvLayer`: a residual convolutional block that cuts the image
-        size (height and width) by half;
-    2. `ConvFusionLayer` that incorporates the feature vector into the channels
-        of the image.
-    Note that the last `ResNetConvLayer` block is not followed by a fusion
-    layer. Instead, the output is flattened.
-    """
-
-    convolution_layers: nn.ModuleList
-    fusion_layers: nn.ModuleList
-
-    def __init__(
-        self,
-        in_channels: int,
-        out_channels: List[int],
-        n_features: int,
-        activation: str = "silu",
-    ) -> None:
-        super().__init__()
-        c = [in_channels] + out_channels
-        self.convolution_layers = nn.ModuleList(
-            [
-                ResNetConvLayer(c[i - 1], c[i], 3, 2, activation)
-                for i in range(1, len(c))
-            ]
-        )
-        self.fusion_layers = nn.ModuleList(
-            [
-                ConvFusionLayer(a, n_features, activation)
-                for a in out_channels[:-1]
-            ]
-        )
-
-    def forward(self, x: Tensor, h: Tensor, *_, **__) -> Tensor:
-        """Override"""
-        for c, f in zip(self.convolution_layers[:-1], self.fusion_layers):
-            x = f(c(x), h)
-        x = self.convolution_layers[-1](x)
-        return x.flatten(1)
+from .imagetabnet import ImageTabNetVisionEncoder
+from .layers import concat_tensor_dict
+from .tabnet import TabNetEncoder
 
 
 class Helena(BaseMultilabelClassifier):
     """See module documentation"""
 
-    _module_a: nn.Module  # Dense input branch
-    _module_b: nn.Module  # Conv. pool input branch
-    _module_c: nn.Module  # Conv fusion encoder
-    _module_d: nn.Module  # Fusion branch
+    tabular_encoder: nn.Module
+    vision_encoder_a: nn.Module
+    vision_encoder_b: nn.Module
+    fusion_branch: nn.Module
 
-    def __init__(self, *args: Any, **kwargs: Any) -> None:
-        super().__init__(*args, **kwargs)
+    def __init__(self) -> None:
+        super().__init__()
         self.save_hyperparameters()
-        # self.automatic_optimization = False
-        n_features = 256
-        self._module_a = nn.Sequential(
-            ResNetLinearLayer(N_FEATURES, 256),
-            ResNetLinearLayer(256, n_features),
+        n_decision_steps, n_a, n_d, gamma = 3, 64, 64, 2
+        n_encoded_features = n_d
+        self.tabular_encoder = TabNetEncoder(
+            N_FEATURES, n_encoded_features, n_a, n_d, n_decision_steps, gamma
         )
-        self._module_b = nn.Sequential(
+        self.vision_encoder_a = nn.Sequential(
             nn.MaxPool2d(5, 1, 2),  # IMAGE_RESIZE_TO = 512 -> 512
             nn.Conv2d(N_CHANNELS, 8, 4, 2, 1, bias=False),  # -> 256
             nn.BatchNorm2d(8),
             nn.SiLU(),
             # nn.MaxPool2d(3, 1, 1),  # 256 -> 256
         )
-        # self._module_c = FusionEncoder(
-        #     in_channels=8,
-        #     out_channels=[
-        #         8,  # 256 -> 128
-        #         16,  # -> 64
-        #         16,  # -> 32
-        #         32,  # -> 16
-        #         32,  # -> 8
-        #         64,  # -> 4
-        #         128,  # -> 2
-        #         n_features,  # -> 1
-        #     ],
-        #     n_features=n_features,
-        # )
-        self._module_c = FusionEncoder(
+        self.vision_encoder_b = ImageTabNetVisionEncoder(
             in_channels=8,
             out_channels=[
                 8,  # 256 -> 128
@@ -160,16 +54,14 @@ class Helena(BaseMultilabelClassifier):
                 32,  # -> 8
                 64,  # -> 4
                 128,  # -> 2
-                n_features,  # -> 1
+                n_encoded_features,  # -> 1
             ],
-            n_features=n_features,
+            n_d=n_d,
+            n_decision_steps=n_decision_steps,
         )
-        self._module_d = nn.Sequential(
-            nn.Linear(2 * n_features, N_TARGETS),
+        self.fusion_branch = nn.Sequential(
+            nn.Linear(2 * n_encoded_features, N_TARGETS, bias=False),
         )
-        # for p in self.parameters():
-        #     if p.ndim >= 2:
-        #         torch.nn.init.xavier_normal_(p)
         self.example_input_array = (
             torch.zeros((32, N_FEATURES)),
             torch.zeros((32, N_CHANNELS, IMAGE_SIZE, IMAGE_SIZE)),
@@ -182,15 +74,26 @@ class Helena(BaseMultilabelClassifier):
         img: Tensor,
         *_,
         **__,
-    ):
-        # One operation per line for easier troubleshooting
+    ) -> Tuple[Tensor, Union[Tensor, float]]:
+        """
+        Args:
+            x (Tensor): Tabular data with shape `(N, N_FEATURES)`, where `N` is
+                the batch size, or alternatively, a string dict, where each key
+                is a `(N,)` tensor.
+            img (Tensor): Batch of images, i.e. a tensor of shape
+                `(N, N_CHANNELS, IMAGE_SIZE, IMAGE_SIZE)`
+
+        Returns:
+            1. Output logits
+            2. An extra loss term (just return 0 if you have nothing to add)
+        """
         if isinstance(x, dict):
             x = concat_tensor_dict(x)
         x = x.float().to(self.device)  # type: ignore
         img = img.to(self.device)  # type: ignore
-        a = self._module_a(x)
-        b = self._module_b(img)
-        c = self._module_c(b, a)
-        ac = torch.concatenate([a, c], dim=-1)
-        d = self._module_d(ac)
-        return d
+        u, _, sparse_loss, ds = self.tabular_encoder(x)
+        v = self.vision_encoder_a(img)
+        v = self.vision_encoder_b(v, ds)
+        uv = torch.concatenate([u, v], dim=-1)  # TODO FIX ME!
+        w = self.fusion_branch(uv)
+        return w, sparse_loss * 1e-3

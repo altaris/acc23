@@ -3,7 +3,7 @@ ACC23 main multi-classification model: prototype "Bastet". The _merge branch_
 """
 __docformat__ = "google"
 
-from typing import Any, Dict, Union
+from typing import Any, Dict, Tuple, Union
 
 import torch
 from torch import Tensor, nn
@@ -85,8 +85,19 @@ class Bastet(BaseMultilabelClassifier):
         img: Tensor,
         *_,
         **__,
-    ):
-        # One operation per line for easier troubleshooting
+    ) -> Tuple[Tensor, Union[Tensor, float]]:
+        """
+        Args:
+            x (Tensor): Tabular data with shape `(N, N_FEATURES)`, where `N` is
+                the batch size, or alternatively, a string dict, where each key
+                is a `(N,)` tensor.
+            img (Tensor): Batch of images, i.e. a tensor of shape
+                `(N, N_CHANNELS, IMAGE_SIZE, IMAGE_SIZE)`
+
+        Returns:
+            1. Output logits
+            2. An extra loss term (just return 0 if you have nothing to add)
+        """
         if isinstance(x, dict):
             x = concat_tensor_dict(x)
         x = x.float().to(self.device)  # type: ignore
@@ -97,4 +108,4 @@ class Bastet(BaseMultilabelClassifier):
         c = self._module_c(ab)
         d = self._module_d(c, a)
         e = self._module_e(d)
-        return e
+        return e, 0.0

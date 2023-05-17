@@ -10,41 +10,45 @@ See also:
 """
 __docformat__ = "google"
 
+from math import sqrt
+
 from typing import Tuple
+from numpy import dtype
+from transformers.activations import get_activation
 
 import torch
 from torch import Tensor, nn
 
+SQRT_OF_0_5 = sqrt(0.5)
 
-class GhostBatchNormalization(nn.Module):
-    """
-    Ghost batch normalization from
+# class GhostBatchNormalization(nn.Module):
+#     """
+#     Ghost batch normalization from
 
-        Hoffer, Elad, Itay Hubara, and Daniel Soudry. "Train longer, generalize
-        better: closing the generalization gap in large batch training of
-        neural networks." Advances in neural information processing systems 30
-        (2017).
-    """
+#         Hoffer, Elad, Itay Hubara, and Daniel Soudry. "Train longer, generalize
+#         better: closing the generalization gap in large batch training of
+#         neural networks." Advances in neural information processing systems 30
+#         (2017).
+#     """
 
-    norm: nn.BatchNorm1d
-    virtual_batch_size: int
+#     norm: nn.BatchNorm1d
+#     virtual_batch_size: int
 
-    def __init__(
-        self,
-        num_features: int,
-        virtual_batch_size: int = 128,
-        momentum: float = 0.01,
-    ):
-        super().__init__()
-        self.norm = nn.BatchNorm1d(num_features, momentum=momentum)
-        self.virtual_batch_size = virtual_batch_size
+#     def __init__(
+#         self,
+#         num_features: int,
+#         momentum: float = 0.01,
+#     ):
+#         super().__init__()
+#         self.norm = nn.BatchNorm1d(num_features, momentum=momentum)
+#         self.virtual_batch_size = virtual_batch_size
 
-    # pylint: disable=missing-function-docstring
-    def forward(self, x: Tensor, *_, **__) -> Tensor:
-        n_chunks = x.shape[0] // self.virtual_batch_size
-        chunks = [x] if n_chunks == 0 else torch.chunk(x, n_chunks, dim=0)
-        xns = [self.norm(c) for c in chunks]
-        return torch.cat(xns, 0)
+#     # pylint: disable=missing-function-docstring
+#     def forward(self, x: Tensor, *_, **__) -> Tensor:
+#         n_chunks = x.shape[0] // self.virtual_batch_size
+#         chunks = [x] if n_chunks == 0 else torch.chunk(x, n_chunks, dim=0)
+#         xns = [self.norm(c) for c in chunks]
+#         return torch.cat(xns, 0)
 
 
 class GLUBlock(nn.Module):
@@ -61,13 +65,10 @@ class GLUBlock(nn.Module):
         self,
         in_features: int,
         out_features: int,
-        virtual_batch_size: int = 128,
     ) -> None:
         super().__init__()
         self.linear = nn.Linear(in_features, 2 * out_features)
-        self.norm = GhostBatchNormalization(
-            2 * out_features, virtual_batch_size
-        )
+        self.norm = nn.BatchNorm1d(2 * out_features)
         self.activation = nn.GLU()
 
     # pylint: disable=missing-function-docstring
@@ -90,7 +91,6 @@ class AttentiveTransformer(nn.Module):
         in_features: int,
         n_a: int,
         gamma: float = 1.5,
-        virtual_batch_size: int = 128,
     ) -> None:
         """
         Args:
@@ -98,12 +98,11 @@ class AttentiveTransformer(nn.Module):
             n_a (int): Dimension of the attribute vector
             gamma (float): Relaxation parameter, denoted by $\\gamma$ in the
                 paper
-            virtual_batch_size (int): See `GhostBatchNormalization`
         """
         super().__init__()
         self.gamma = gamma
         self.linear = nn.Linear(n_a, in_features)
-        self.norm = GhostBatchNormalization(in_features, virtual_batch_size)
+        self.norm = nn.BatchNorm1d(in_features)
 
     def forward(
         self, a: Tensor, prior_scales: Tensor, **__
@@ -121,8 +120,7 @@ class AttentiveTransformer(nn.Module):
         a = self.linear(a)
         a = self.norm(a)
         m = sparsemax(a * prior_scales)
-        prior_scales *= self.gamma - m
-        return m, prior_scales
+        return m, prior_scales * (self.gamma - m)
 
 
 class FeatureTransformerSharedBlock(nn.Module):
@@ -136,7 +134,6 @@ class FeatureTransformerSharedBlock(nn.Module):
         in_features: int,
         n_a: int,
         n_d: int,
-        virtual_batch_size: int = 128,
     ) -> None:
         """
         Args:
@@ -145,11 +142,10 @@ class FeatureTransformerSharedBlock(nn.Module):
             n_a (int): Dimension of the feature vector (to be passed down to
                 the next decision step)
             n_d (int): Dimension of the output vector
-            virtual_batch_size: See `GhostBatchNormalization`
         """
         super().__init__()
-        self.gb_1 = GLUBlock(in_features, n_a + n_d, virtual_batch_size)
-        self.gb_2 = GLUBlock(n_a + n_d, n_a + n_d, virtual_batch_size)
+        self.gb_1 = GLUBlock(in_features, n_a + n_d)
+        self.gb_2 = GLUBlock(n_a + n_d, n_a + n_d)
 
     # pylint: disable=missing-function-docstring
     def forward(self, x: Tensor, *_, **__) -> Tensor:
@@ -161,9 +157,8 @@ class FeatureTransformerSharedBlock(nn.Module):
             A `(N, n_a + n_d)` tensor, denoted by $\\mathbf{[a[i], d[i]]}$ in
             the paper.
         """
-        s = Tensor([0.5], device=x.device).sqrt()
         x = self.gb_1(x)
-        x = s * (x + self.gb_2(x))
+        x = SQRT_OF_0_5 * (x + self.gb_2(x))
         return x
 
 
@@ -177,25 +172,22 @@ class FeatureTransformerDependentBlock(nn.Module):
         self,
         n_a: int,
         n_d: int,
-        virtual_batch_size: int = 128,
     ) -> None:
         """
         Args:
             n_a (int): Dimension of the feature vector (to be passed down to
                 the next decision step)
             n_d (int): Dimension of the output vector
-            virtual_batch_size: See `GhostBatchNormalization`
         """
         super().__init__()
-        self.gb_1 = GLUBlock(n_a + n_d, n_a + n_d, virtual_batch_size)
-        self.gb_2 = GLUBlock(n_a + n_d, n_a + n_d, virtual_batch_size)
+        self.gb_1 = GLUBlock(n_a + n_d, n_a + n_d)
+        self.gb_2 = GLUBlock(n_a + n_d, n_a + n_d)
 
     # pylint: disable=missing-function-docstring
     def forward(self, x: Tensor, *_, **__) -> Tensor:
         """Takes and returns a `(N, n_a + n_d)` tensor"""
-        s = Tensor([0.5], device=x.device).sqrt()
-        x = s * (x + self.gb_1(x))
-        x = s * (x + self.gb_2(x))
+        x = SQRT_OF_0_5 * (x + self.gb_1(x))
+        x = SQRT_OF_0_5 * (x + self.gb_2(x))
         return x
 
 
@@ -210,7 +202,6 @@ class FeatureTransformer(nn.Module):
         n_a: int,
         n_d: int,
         shared_block: FeatureTransformerSharedBlock,
-        virtual_batch_size: int = 128,
     ) -> None:
         """
         Args:
@@ -222,9 +213,7 @@ class FeatureTransformer(nn.Module):
         """
         super().__init__()
         self.shared_block = shared_block
-        self.dependent_block = FeatureTransformerDependentBlock(
-            n_a, n_d, virtual_batch_size
-        )
+        self.dependent_block = FeatureTransformerDependentBlock(n_a, n_d)
 
     # pylint: disable=missing-function-docstring
     def forward(self, x: Tensor, *_, **__) -> Tensor:
@@ -248,7 +237,7 @@ class DecisionStep(nn.Module):
         n_d: int,
         shared_feature_transformer_block: FeatureTransformerSharedBlock,
         gamma: float = 1.5,
-        virtual_batch_size: int = 128,
+        activation: str = "relu",
     ) -> None:
         """
         Args:
@@ -261,18 +250,17 @@ class DecisionStep(nn.Module):
                 shared across all decision steps.
             gamma (float): Relaxation parameter, denoted by $\\gamma$ in the
                 paper
-            virtual_batch_size: See `GhostBatchNormalization`
+            activation (str): Defaults to relu, as in the paper
         """
         super().__init__()
-        self.activation = nn.ReLU()
+        self.activation = get_activation(activation)
         self.attentive_transformer = AttentiveTransformer(
-            in_features, n_a, gamma, virtual_batch_size
+            in_features, n_a, gamma
         )
         self.feature_transformer = FeatureTransformer(
             n_a,
             n_d,
             shared_feature_transformer_block,
-            virtual_batch_size,
         )
         self.n_a = n_a
 
@@ -325,7 +313,7 @@ class TabNetEncoder(nn.Module):
         n_d: int,
         n_decision_steps: int = 3,
         gamma: float = 1.5,
-        virtual_batch_size: int = 128,
+        activation: str = "relu",
     ) -> None:
         """
         Args:
@@ -340,27 +328,31 @@ class TabNetEncoder(nn.Module):
             gamma (float): Relaxation parameter for the attentive transformers.
                 The paper recommends larger values if the number of decision
                 steps is large.
-            virtual_batch_size: See `GhostBatchNormalization`
+            activation (str): Defaults to relu, as in the paper
         """
         super().__init__()
-        shared_block = FeatureTransformerSharedBlock(
-            in_features, n_a, n_d, virtual_batch_size
-        )
-        self.feature_transformer = FeatureTransformer(
-            n_a, n_d, shared_block, virtual_batch_size
-        )
+        shared_block = FeatureTransformerSharedBlock(in_features, n_a, n_d)
+        self.feature_transformer = FeatureTransformer(n_a, n_d, shared_block)
         self.decision_steps = nn.ModuleList(
             [
-                DecisionStep(in_features, n_a, n_d, shared_block, gamma)
+                DecisionStep(
+                    in_features,
+                    n_a,
+                    n_d,
+                    shared_block,
+                    gamma,
+                    activation,
+                )
                 for _ in range(n_decision_steps)
             ]
         )
-        self.norm = GhostBatchNormalization(in_features, virtual_batch_size)
-        self.linear = nn.Linear(n_d, out_features)
+        self.norm = nn.BatchNorm1d(in_features)
+        self.linear = nn.Linear(n_d, out_features, bias=False)
         self.n_a, self.n_d = n_a, n_d
 
-    # pylint: disable=missing-function-docstring
-    def forward(self, x: Tensor, *_, **__) -> Tuple[Tensor, Tensor, Tensor]:
+    def forward(
+        self, x: Tensor, *_, **__
+    ) -> Tuple[Tensor, Tensor, Tensor, Tensor]:
         """
         Args:
             x (Tensor): Unnormalized tabular data with shape `(B, in_features)`
@@ -369,22 +361,26 @@ class TabNetEncoder(nn.Module):
             1. Output tensor with shape `(B, n_d)`
             2. Feature attribute tensor with shape `(B, in_features)`
             3. The sparse regularization term $L_{sparse}$
+            4. The every output tensor of every decision block in the form of a
+               `(n_decision_steps, N, n_d)` tensor. The first return value is
+               just the sum of this list passed through a dense layer.
         """
-        x = self.norm(x)
-        a = self.feature_transformer(x)[:, : self.n_a]
-        prior_scales = torch.ones_like(x, dtype=x.dtype, device=x.device)
+        xn = self.norm(x)
+        a = self.feature_transformer(xn)[:, : self.n_a]
+        prior_scales = torch.ones_like(x, dtype=x.dtype).to(x.device)
+        prior_scales.requires_grad = False
         ms, mfs, ds = [], [], []
         for step in self.decision_steps:
-            a, d, prior_scales, m = step(x, a, prior_scales)
+            a, d, prior_scales, m = step(xn, a, prior_scales)
             ms.append(m)
             mfs.append(d.sum(dim=-1).unsqueeze(dim=-1) * m)
             ds.append(d)
-        d = torch.stack(ds).sum(dim=0)
+        dd = torch.stack(ds)
+        y = self.linear(dd.sum(dim=0))
         m_agg = torch.stack(mfs).sum(dim=0)
-        m_agg /= m_agg.sum()
-        y = self.linear(d)
+        m_agg /= m_agg.sum() + 1e-10
         l = torch.stack(list(map(sparse_regularization_term, ms))).mean()
-        return y, m_agg, l
+        return y, m_agg, l, dd
 
 
 class TabNetDecoder(nn.Module):
@@ -399,7 +395,6 @@ class TabNetDecoder(nn.Module):
         n_a: int,
         n_d: int,
         n_steps: int = 3,
-        virtual_batch_size: int = 128,
     ) -> None:
         """
         Args:
@@ -410,18 +405,13 @@ class TabNetDecoder(nn.Module):
             n_d (int): Dimension of the output vector. The paper recommends
                 `n_a = n_d`.
             n_steps (int): The paper recommends between 3 and 10
-            virtual_batch_size: See `GhostBatchNormalization`
         """
         super().__init__()
-        shared_block = FeatureTransformerSharedBlock(
-            in_features, n_a, n_d, virtual_batch_size
-        )
+        shared_block = FeatureTransformerSharedBlock(in_features, n_a, n_d)
         self.steps = nn.ModuleList(
             [
                 nn.Sequential(
-                    FeatureTransformer(
-                        n_a, n_d, shared_block, virtual_batch_size
-                    ),
+                    FeatureTransformer(n_a, n_d, shared_block),
                     nn.Linear(n_a + n_d, out_features),
                 )
                 for _ in range(n_steps)
@@ -430,8 +420,8 @@ class TabNetDecoder(nn.Module):
 
     # pylint: disable=missing-function-docstring
     def forward(self, z: Tensor, *_, **__) -> Tensor:
-        xs = map(lambda step: step(z), self.steps)
-        x = torch.stack(list(xs)).sum(dim=0)
+        xs = list(map(lambda step: step(z), self.steps))
+        x = torch.stack(xs).sum(dim=0)
         return x
 
 
@@ -455,6 +445,7 @@ def sparsemax(z: Tensor) -> Tensor:
     """
     s, _ = z.sort(dim=-1)  # z: (B, N), s: (B, N), s_{ij} = (z_i)_{(j)}
     r = torch.arange(0, z.shape[-1])  # r = [0, ..., N-1]
+    r = r.to(z.device)
     # w (B, N), w_{ik} = 1 if 1 + k z_{(k)} > sum_{j<=k} z_{(j)}, 0 otherwise
     w = (1 + r * s - s.cumsum(dim=-1) > 0).to(int)
     # r * w (B, N), (r * w)_{ik} = k if w_{ik} = 1, 0 otherwise. Therefore:
@@ -463,7 +454,14 @@ def sparsemax(z: Tensor) -> Tensor:
     k_z = (r * w).max(dim=-1).values
     # m (B, N), m_{ik} = 1 if k <= (k_z)_i, 0 otherwise. Therefore:
     # m_z (B,), (m_z)_i = sum_{j <= (k_z)_i} z_{(j)}
-    m = Tensor([[1] * int(k) + [0] * (z.shape[-1] - int(k)) for k in k_z + 1])
+    m = Tensor(
+        [
+            [1] * int(k) + [0] * (z.shape[-1] - int(k))
+            for k in k_z + 1
+        ] # TODO: int(k) generates a warning...
+    )
+    m.requires_grad = False
+    m = m.to(z.device)
     m_z = (m * s).sum(dim=-1)
     tau_z = (m_z + 1) / k_z
     # p: (B, N), p_{ik} = [ z_{ik} - (tau_z)_i ]_+
