@@ -4,7 +4,7 @@ but with convopooling blocks instead of resnet blocks
 """
 __docformat__ = "google"
 
-from typing import Any, Dict, Optional, Tuple, Union
+from typing import Any, Dict, Optional, Union
 
 import torch
 from torch import Tensor, nn
@@ -108,7 +108,7 @@ class Euclid(BaseMultilabelClassifier):
         img: Tensor,
         *_,
         **__,
-    ) -> Tuple[Tensor, Union[Tensor, float]]:
+    ) -> Tensor:
         """
         Args:
             x (Tensor): Tabular data with shape `(N, N_FEATURES)`, where `N` is
@@ -129,4 +129,4 @@ class Euclid(BaseMultilabelClassifier):
         b = self._module_b(img)
         ab = torch.concatenate([a, b], dim=-1)
         c = self._module_c(ab)
-        return c, 0.0
+        return c

@@ -10,8 +10,11 @@ from torch import Tensor
 
 from acc23.autoencoders import AE, VAE
 from acc23.dataset import ACCDataset
-from acc23.models import Helena as Model  # SET CORRECT MODEL CLASS HERE
-from acc23.postprocessing import evaluate_on_test_dataset
+from acc23.models import Gordon as Model  # SET CORRECT MODEL CLASS HERE
+from acc23.postprocessing import (
+    evaluate_on_test_dataset,
+    evaluate_on_train_dataset,
+)
 from acc23.utils import last_checkpoint_path, train_model
 
 
@@ -74,17 +77,35 @@ def main():
     )
 
     dt = datetime.now().strftime("%Y-%m-%d-%H-%M")
-    for dst in ["test", "train"]:
-        path = f"out/{dt}.{name}.{dst}.csv"
-        df = evaluate_on_test_dataset(
-            model,
-            f"data/{dst}.csv",
-            "data/images",
-            image_transform,
-            # load_csv_kwargs={"preprocess": False, "impute": False},
-        )
-        df.to_csv(f"out/{dt}.{name}.{dst}.csv", index=False)
-        logging.info("Saved test set prediction to '{}'", path)
+
+    df = evaluate_on_test_dataset(
+        model,
+        "data/test.csv",
+        "data/images",
+        image_transform,
+        # load_csv_kwargs={"preprocess": False, "impute": False},
+    )
+    path = f"out/{dt}.{name}.test.csv"
+    df.to_csv(path, index=False)
+    logging.info("Saved test set prediction to '{}'", path)
+
+    df, metrics = evaluate_on_train_dataset(
+        model,
+        "data/train.csv",
+        "data/images",
+        image_transform,
+        # load_csv_kwargs={"preprocess": False, "impute": False},
+    )
+    logging.debug(
+        "Metrics on train set:\n{}",
+        metrics,
+    )
+    path = f"out/{dt}.{name}.train.csv"
+    df.to_csv(path, index=False)
+    logging.info("Saved train set prediction to '{}'", path)
+    path = f"out/{dt}.{name}.train.metrics.csv"
+    metrics.to_csv(path, index=True)
+    logging.info("Saved train set prediction metrics to '{}'", path)
 
 
 if __name__ == "__main__":

@@ -5,7 +5,7 @@ VAE.
 """
 __docformat__ = "google"
 
-from typing import Dict, Tuple, Union
+from typing import Dict, Union
 
 import torch
 from torch import Tensor, nn
@@ -55,7 +55,7 @@ class Farzad(BaseMultilabelClassifier):
         z: Tensor,
         *_,
         **__,
-    ) -> Tuple[Tensor, Union[Tensor, float]]:
+    ) -> Tensor:
         """
         Args:
             x (Tensor): Tabular data with shape `(N, N_FEATURES)`, where `N` is
@@ -75,4 +75,4 @@ class Farzad(BaseMultilabelClassifier):
         a = self._module_a(x)
         az = torch.concatenate([a, z], dim=-1)
         b = self._module_b(az)
-        return b, 0.0
+        return b

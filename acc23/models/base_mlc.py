@@ -1,10 +1,9 @@
 """Base class for multilabel classifiers"""
 
 from typing import Any, Dict, Optional
-import pytorch_lightning as pl
 
+import pytorch_lightning as pl
 import torch
-from torch import Tensor, nn
 from sklearn.metrics import (
     accuracy_score,
     f1_score,
@@ -12,11 +11,12 @@ from sklearn.metrics import (
     precision_score,
     recall_score,
 )
+from torch import Tensor, nn, optim
 
 from acc23.constants import (
     N_TARGETS,
-    POSITIVE_TARGET_RATIOS,
     POSITIVE_TARGET_COUNTS,
+    POSITIVE_TARGET_RATIOS,
 )
 
 from .layers import concat_tensor_dict
@@ -26,8 +26,8 @@ class BaseMultilabelClassifier(pl.LightningModule):
     """Base class for multilabel classifiers (duh)"""
 
     def configure_optimizers(self) -> Any:
-        optimizer = torch.optim.Adam(self.parameters(), lr=1e-3)
-        scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+        optimizer = optim.Adam(self.parameters(), lr=1e-3)
+        scheduler = optim.lr_scheduler.ReduceLROnPlateau(
             optimizer, mode="min", factor=0.2, patience=20, min_lr=5e-5
         )
         return {
@@ -59,11 +59,12 @@ class BaseMultilabelClassifier(pl.LightningModule):
         respectively.
         """
         y_true = concat_tensor_dict(y).float().to(self.device)  # type: ignore
-        y_pred, extra_loss = self(x, img)
+        out = self(x, img)  # out may be y_pred or (y_pred, extra loss term)
+        y_pred, extra_loss = out if isinstance(out, tuple) else (out, 0.0)
         y_true_np = y_true.cpu().detach().numpy()
         y_pred_np = y_pred.cpu().detach().numpy() > 0
-        w = 2
-        positive_count = Tensor(POSITIVE_TARGET_COUNTS).to(y_pred.device)
+        # w = 1
+        # positive_count = Tensor(POSITIVE_TARGET_COUNTS).to(y_pred.device)
         # positive_ratio = Tensor(POSITIVE_TARGET_RATIOS).to(y_pred.device)
         loss = (
             # nn.functional.mse_loss(y_pred.sigmoid(), y_true)
@@ -79,8 +80,8 @@ class BaseMultilabelClassifier(pl.LightningModule):
             #     y_pred, y_true, positive_count
             # )
             # bp_mll_loss(y_pred.sigmoid(), y_true)
-            - w * continuous_f1_score(y_pred.sigmoid(), y_true)
-            # + extra_loss
+            # - w * continuous_f1_score(y_pred.sigmoid(), y_true)
+            + extra_loss
         )
         acc = accuracy_score(y_true_np, y_pred_np)
         ham = hamming_loss(y_true_np, y_pred_np)
@@ -108,6 +109,7 @@ class BaseMultilabelClassifier(pl.LightningModule):
             self.log_dict(
                 {
                     f"{stage}/acc": acc,
+                    f"{stage}/extra": extra_loss,
                     f"{stage}/f1_min": f1_min,
                     f"{stage}/ham": ham,
                     f"{stage}/prec": prec,
@@ -169,7 +171,7 @@ def bp_mll_loss(y_pred: Tensor, y_true: Tensor, *_, **__) -> Tensor:
     #             assert a[i, j, k] == y_pred[i, j] - y_pred[i, k]
 
 
-def class_balanced_loss(  # TODO
+def class_balanced_loss(
     y_pred: Tensor,
     y_true: Tensor,
     positive_count: Tensor,
@@ -268,13 +270,13 @@ def distribution_balanced_loss_with_logits(
     rebalanced cross entropy
     (`acc23.models.base_mlc.rebalanced_binary_cross_entropy_with_logits`).
     """
-    nu = -kappa * torch.log(1 / y_pred.sigmoid() - 1).clamp(-100, 0)
+    nu = -kappa * torch.log(1 / y_pred.sigmoid() - 1 + 1e-5)
     z = y_true * (y_pred - nu) + (1 - y_true) * (-1) * lambda_ * (y_pred - nu)
     foc = (y_true * (1 - z.sigmoid()) + (1 - y_true) * z.sigmoid()) ** gamma
-    lmb = y_true + (1 - y_true) / (lambda_ + 1e-10)
-    pc = 1 / (N_TARGETS * positive_count + 1e-10)
-    pi = torch.sum(y_true / (N_TARGETS * positive_count + 1e-10), dim=-1)
-    r = torch.outer(1 / (pi + 1e-10), pc)
+    lmb = y_true + (1 - y_true) / (lambda_ + 1e-5)
+    pc = 1 / (N_TARGETS * positive_count + 1e-5)
+    pi = torch.sum(y_true / (N_TARGETS * positive_count + 1e-5), dim=-1)
+    r = torch.outer(1 / (pi + 1e-5), pc)
     r_hat = alpha + torch.sigmoid(beta * (r - mu))
     bce = nn.functional.binary_cross_entropy_with_logits(
         z, y_true, reduction="none"
