@@ -6,18 +6,48 @@ __docformat__ = "google"
 
 import json
 from pathlib import Path
-from typing import Optional, Union
+from typing import Optional, Tuple, Union
 
 import pandas as pd
 import requests
 import torch
 from loguru import logger as logging
 from rich.progress import track
+from sklearn.metrics import (
+    accuracy_score,
+    f1_score,
+    precision_score,
+    recall_score,
+)
 from torch import Tensor, nn
 from torch.utils.data import DataLoader
 
 from acc23.constants import TARGETS
 from acc23.dataset import ACCDataset, Transform_t
+
+
+def evaluate_on_dataset(
+    model: nn.Module,
+    csv_file_path: Union[str, Path],
+    image_dir_path: Union[str, Path],
+    image_transform: Optional[Transform_t] = None,
+    load_csv_kwargs: Optional[dict] = None,
+    batch_size: int = 32,
+) -> pd.DataFrame:
+    """Simply evaluates a model on a dataset"""
+    ds = ACCDataset(
+        csv_file_path,
+        image_dir_path,
+        image_transform,
+        load_csv_kwargs,
+    )
+    dl = DataLoader(ds, batch_size=batch_size)
+    with torch.no_grad():
+        y = []
+        for x, _, img in track(dl, "Evaluating..."):
+            out = model(x, img)
+            y.append(out[0] if isinstance(out, tuple) else out)
+    return output_to_dataframe(torch.cat(y))
 
 
 def evaluate_on_test_dataset(
@@ -29,19 +59,18 @@ def evaluate_on_test_dataset(
     batch_size: int = 32,
 ) -> pd.DataFrame:
     """
-    Evaluates a model on a dataset, and returns a submittable dataframe (with
-    all the target columns and the `trustii_id` column).
+    Evaluates a model on a test dataset, and returns a submittable dataframe
+    (with all the target columns and the `trustii_id` column). The dataset at
+    `csv_file_path` is assumed to have a `trustii_id` column.
     """
-    ds = ACCDataset(
+    df = evaluate_on_dataset(
+        model,
         csv_file_path,
         image_dir_path,
         image_transform,
         load_csv_kwargs,
+        batch_size,
     )
-    dl = DataLoader(ds, batch_size=batch_size)
-    with torch.no_grad():
-        y = [model(x, img) for x, _, img in track(dl, "Evaluating...")]
-    df = output_to_dataframe(torch.cat(y))
     raw = pd.read_csv(csv_file_path)
     if "trustii_id" in raw.columns:
         ids = raw["trustii_id"]
@@ -50,6 +79,47 @@ def evaluate_on_test_dataset(
     df = pd.concat([ids, df], axis=1)
     df.set_index("trustii_id")
     return df
+
+
+def evaluate_on_train_dataset(
+    model: nn.Module,
+    csv_file_path: Union[str, Path],
+    image_dir_path: Union[str, Path],
+    image_transform: Optional[Transform_t] = None,
+    load_csv_kwargs: Optional[dict] = None,
+    batch_size: int = 32,
+) -> Tuple[pd.DataFrame, pd.DataFrame]:
+    """
+    Evaluates a model on a training dataset. The dataset is assumed to have all
+    target columns. Also returns a metric dataframe.
+    """
+    df = evaluate_on_dataset(
+        model,
+        csv_file_path,
+        image_dir_path,
+        image_transform,
+        load_csv_kwargs,
+        batch_size,
+    )
+    tgt = pd.read_csv(csv_file_path)[TARGETS]
+    n = len(df)
+    metrics = pd.DataFrame(
+        [
+            [
+                tgt[t].sum() / n,
+                df[t].sum() / n,
+                f1_score(tgt[t], df[t], zero_division=0),
+                precision_score(tgt[t], df[t], zero_division=0),
+                recall_score(tgt[t], df[t], zero_division=0),
+                ((1 - df[t]) * (1 - tgt[t])).sum() / (1 - tgt[t]).sum(),
+                accuracy_score(tgt[t], df[t]),
+            ]
+            for t in TARGETS
+        ],
+        columns=["prev_true", "prev_pred", "f1", "prec", "rec", "spec", "acc"],
+        index=TARGETS,
+    )
+    return df, metrics
 
 
 def output_to_dataframe(y: Tensor) -> pd.DataFrame:

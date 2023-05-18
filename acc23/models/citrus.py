@@ -4,7 +4,7 @@ multihead attention layers to merge the dense and convolutional input branches.
 """
 __docformat__ = "google"
 
-from typing import Any, Dict, Tuple, Union
+from typing import Any, Dict, Union
 
 import torch
 from torch import Tensor, nn
@@ -86,7 +86,7 @@ class Citrus(BaseMultilabelClassifier):
         img: Tensor,
         *_,
         **__,
-    ) -> Tuple[Tensor, Union[Tensor, float]]:
+    ) -> Tensor:
         """
         Args:
             x (Tensor): Tabular data with shape `(N, N_FEATURES)`, where `N` is
@@ -108,4 +108,4 @@ class Citrus(BaseMultilabelClassifier):
         ab = torch.concatenate([a, b], dim=-1)
         c = self._module_c(ab)
         d = self._module_d(c)
-        return d, 0.0
+        return d

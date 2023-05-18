@@ -87,7 +87,7 @@ class ACCDataset(Dataset):
         are
 
             {
-                "batch_size": 64,
+                "batch_size": 128,
                 "pin_memory": True,
                 "num_workers": 16,
             }
@@ -97,7 +97,7 @@ class ACCDataset(Dataset):
         """
         split_kwargs = split_kwargs or {}
         kw = dataloader_kwargs or {
-            "batch_size": 64,
+            "batch_size": 128,
             "pin_memory": True,
             "num_workers": 16,
         }
@@ -179,7 +179,7 @@ class ImageFolderDataset(Dataset):
         are
 
             {
-                "batch_size": 64,
+                "batch_size": 128,
                 "pin_memory": True,
                 "num_workers": 16,
             }
@@ -189,7 +189,7 @@ class ImageFolderDataset(Dataset):
         """
         split_kwargs = split_kwargs or {}
         kw = dataloader_kwargs or {
-            "batch_size": 64,
+            "batch_size": 128,
             "pin_memory": True,
             "num_workers": 16,
         }

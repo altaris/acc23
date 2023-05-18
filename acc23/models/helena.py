@@ -16,7 +16,7 @@ from torch import Tensor, nn
 from acc23.constants import IMAGE_SIZE, N_CHANNELS, N_FEATURES, N_TARGETS
 
 from .base_mlc import BaseMultilabelClassifier
-from .imagetabnet import ImageTabNetVisionEncoder
+from .imagetabnet import VisionEncoder
 from .layers import concat_tensor_dict
 from .tabnet import TabNetEncoder
 
@@ -28,25 +28,53 @@ class Helena(BaseMultilabelClassifier):
     vision_encoder_a: nn.Module
     vision_encoder_b: nn.Module
     fusion_branch: nn.Module
+    sparse_loss_weight: float
 
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        n_a: int = 512,
+        n_d: int = 512,
+        n_decision_steps: int = 5,
+        n_encoded_features: int = 256,
+        gamma: float = 2.0,
+        sparse_loss_weight: float = 5e-3,
+    ) -> None:
+        """
+        Args:
+            n_a (int): Dimension of the feature vector (to be passed down to
+                the next decision step)
+            n_d (int): Dimension of the output vector. The paper recommends
+                `n_a = n_d`.
+            n_decision_steps (int): The paper recommends between 3 and 10
+            n_encoded_features (int): Dimension of an output vector from the
+                tabular encoder. The vision encoder also produces encoded
+                vectors of that dimension.
+            gamma (float): Relaxation parameter for the attentive transformers.
+                The paper recommends larger values if the number of decision
+                steps is large.
+            activation (str): Defaults to relu, as in the paper
+        """
         super().__init__()
         self.save_hyperparameters()
-        n_decision_steps, n_a, n_d, gamma = 3, 64, 64, 2
-        n_encoded_features = n_d
+        self.sparse_loss_weight = sparse_loss_weight
         self.tabular_encoder = TabNetEncoder(
-            N_FEATURES, n_encoded_features, n_a, n_d, n_decision_steps, gamma
+            in_features=N_FEATURES,
+            out_features=n_encoded_features,
+            n_a=n_a,
+            n_d=n_d,
+            n_decision_steps=n_decision_steps,
+            gamma=gamma,
         )
         self.vision_encoder_a = nn.Sequential(
             nn.MaxPool2d(5, 1, 2),  # IMAGE_RESIZE_TO = 512 -> 512
             nn.Conv2d(N_CHANNELS, 8, 4, 2, 1, bias=False),  # -> 256
             nn.BatchNorm2d(8),
-            nn.SiLU(),
-            # nn.MaxPool2d(3, 1, 1),  # 256 -> 256
+            nn.ReLU(),
         )
-        self.vision_encoder_b = ImageTabNetVisionEncoder(
+        self.vision_encoder_b = VisionEncoder(
             in_channels=8,
             out_channels=[
+                # 8,  # 512 -> 256
                 8,  # 256 -> 128
                 16,  # -> 64
                 16,  # -> 32
@@ -56,8 +84,7 @@ class Helena(BaseMultilabelClassifier):
                 128,  # -> 2
                 n_encoded_features,  # -> 1
             ],
-            n_d=n_d,
-            n_decision_steps=n_decision_steps,
+            in_features=n_encoded_features,
         )
         self.fusion_branch = nn.Sequential(
             nn.Linear(2 * n_encoded_features, N_TARGETS, bias=False),
@@ -91,9 +118,9 @@ class Helena(BaseMultilabelClassifier):
             x = concat_tensor_dict(x)
         x = x.float().to(self.device)  # type: ignore
         img = img.to(self.device)  # type: ignore
-        u, _, sparse_loss, ds = self.tabular_encoder(x)
+        u, _, sl = self.tabular_encoder(x)
         v = self.vision_encoder_a(img)
-        v = self.vision_encoder_b(v, ds)
-        uv = torch.concatenate([u, v], dim=-1)  # TODO FIX ME!
+        v = self.vision_encoder_b(v, u)
+        uv = torch.concatenate([u, v], dim=-1)
         w = self.fusion_branch(uv)
-        return w, sparse_loss * 1e-3
+        return w, sl * self.sparse_loss_weight
