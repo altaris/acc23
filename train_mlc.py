@@ -7,10 +7,11 @@ from functools import partial
 
 from loguru import logger as logging
 from torch import Tensor
+import pytorch_lightning as pl
 
 from acc23.autoencoders import AE, VAE
 from acc23.dataset import ACCDataset
-from acc23.models import Gordon as Model  # SET CORRECT MODEL CLASS HERE
+from acc23.models import Jackal as Model  # SET CORRECT MODEL CLASS HERE
 from acc23.postprocessing import (
     evaluate_on_test_dataset,
     evaluate_on_train_dataset,
@@ -19,6 +20,9 @@ from acc23.utils import last_checkpoint_path, train_model
 
 
 def main():
+
+    pl.seed_everything(42, workers=True)
+
     name = Model.__name__.lower()
     logging.info("Training model '{}'", name)
 
