@@ -8,6 +8,7 @@ ImageTabNet components from
 """
 __docformat__ = "google"
 
+from itertools import zip_longest
 from typing import List
 
 import torch
@@ -96,8 +97,8 @@ class AttentionModule(nn.Module):
         self.linear = nn.Linear(in_features, in_channels, bias=False)
         self.conv = nn.Conv2d(in_channels, in_channels, 1, 1, 0, bias=False)
 
+    # pylint: disable=missing-function-docstring
     def forward(self, x: Tensor, h: Tensor, *_, **__) -> Tensor:
-        """Override"""
         u = self.block_1(x) * x
         u = self.block_2(u)
         v = self.linear(h)
@@ -115,9 +116,6 @@ class VisionEncoder(nn.Module):
     2. `AttentionModule` that incorporates the feature vector into the channels
        of the image.
     """
-    # TODO: Erase
-    # Note that the last `ResNetConvLayer` block is not followed by a
-    # `AttentionModule`. Instead, the output is flattened.
 
     encoder_layers: nn.ModuleList
     fusion_layers: nn.ModuleList
@@ -128,6 +126,7 @@ class VisionEncoder(nn.Module):
         out_channels: List[int],
         in_features: int,
         activation: str = "silu",
+        attention_after_last: bool = False,
     ) -> None:
         """
         Args:
@@ -136,7 +135,9 @@ class VisionEncoder(nn.Module):
             in_features (int): Dimension of the feature vector to inject after
                 each convolution stage
             n_decision_steps (int): Number of decision steps
-            activation: Defaults to silu
+            activation (str): Defaults to silu
+            attention_after_last (bool): Wether to add an attention module
+                after the last residual block, defaults to `False`.
         """
         super().__init__()
         c = [in_channels] + out_channels
@@ -156,6 +157,7 @@ class VisionEncoder(nn.Module):
                 for i in range(1, len(c))
             ]
         )
+        k = len(out_channels) if attention_after_last else -1
         self.fusion_layers = nn.ModuleList(
             [
                 AttentionModule(
@@ -163,17 +165,19 @@ class VisionEncoder(nn.Module):
                     in_features,
                     activation,
                 )
-                for a in out_channels
+                for a in out_channels[:k]
             ]
         )
 
-    def forward(self, img: Tensor, d: Tensor, *_, **__) -> Tensor:
+    def forward(self, img: Tensor, h: Tensor, *_, **__) -> Tensor:
         """
         Args:
             img (Tensor):
-            ds (Tensor): A `(n_decision_steps, N, in_features)` tensor
+            h (Tensor):
         """
-        for c, f in zip(self.encoder_layers, self.fusion_layers):
-            img = f(c(img), d)
-        # img = self.encoder_layers[-1](img)
+        # itertool.zip_longest pads the shorter sequence with None's
+        for c, f in zip_longest(self.encoder_layers, self.fusion_layers):
+            img = c(img)
+            if f is not None:
+                img = f(img, h)
         return img.flatten(1)
