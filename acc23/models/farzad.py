@@ -63,10 +63,6 @@ class Farzad(BaseMultilabelClassifier):
                 is a `(N,)` tensor.
             z (Tensor): Batch of encoded images, i.e. a tensor of shape
                 `(N, vae_latent_dim)`
-
-        Returns:
-            1. Output logits
-            2. An extra loss term (just return 0 if you have nothing to add)
         """
         if isinstance(x, dict):
             x = concat_tensor_dict(x)

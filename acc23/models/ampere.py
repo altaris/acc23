@@ -95,10 +95,6 @@ class Ampere(BaseMultilabelClassifier):
                 is a `(N,)` tensor.
             img (Tensor): Batch of images, i.e. a tensor of shape
                 `(N, N_CHANNELS, IMAGE_SIZE, IMAGE_SIZE)`
-
-        Returns:
-            1. Output logits
-            2. An extra loss term (just return 0 if you have nothing to add)
         """
         # One operation per line for easier troubleshooting
         if isinstance(x, dict):

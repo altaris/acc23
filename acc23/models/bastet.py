@@ -93,10 +93,6 @@ class Bastet(BaseMultilabelClassifier):
                 is a `(N,)` tensor.
             img (Tensor): Batch of images, i.e. a tensor of shape
                 `(N, N_CHANNELS, IMAGE_SIZE, IMAGE_SIZE)`
-
-        Returns:
-            1. Output logits
-            2. An extra loss term (just return 0 if you have nothing to add)
         """
         if isinstance(x, dict):
             x = concat_tensor_dict(x)

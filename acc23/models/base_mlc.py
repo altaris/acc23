@@ -63,8 +63,8 @@ class BaseMultilabelClassifier(pl.LightningModule):
         y_pred, extra_loss = out if isinstance(out, tuple) else (out, 0.0)
         y_true_np = y_true.cpu().detach().numpy()
         y_pred_np = y_pred.cpu().detach().numpy() > 0
-        # w = 1
-        # positive_count = Tensor(POSITIVE_TARGET_COUNTS).to(y_pred.device)
+        w = 1
+        positive_count = Tensor(POSITIVE_TARGET_COUNTS).to(y_pred.device)
         # positive_ratio = Tensor(POSITIVE_TARGET_RATIOS).to(y_pred.device)
         loss = (
             # nn.functional.mse_loss(y_pred.sigmoid(), y_true)
@@ -72,10 +72,10 @@ class BaseMultilabelClassifier(pl.LightningModule):
             # weighted_binary_cross_entropy_with_logits(
             #     y_pred, y_true, positive_ratio
             # )
-            # rebalanced_binary_cross_entropy_with_logits(
-            #     y_pred, y_true, positive_count
-            # )
-            focal_loss_with_logits(y_pred, y_true)
+            rebalanced_binary_cross_entropy_with_logits(
+                y_pred, y_true, positive_count
+            )
+            # focal_loss_with_logits(y_pred, y_true)
             # distribution_balanced_loss_with_logits(
             #     y_pred, y_true, positive_count
             # )
