@@ -1,11 +1,6 @@
 """
-ACC23 main multi-classification model: prototype "Gordon". Fusion model
-**inspired** by
-
-    Y. Liu, H. -P. Lu and C. -H. Lai, "A Novel Attention-Based Multi-Modal
-    Modeling Technique on Mixed Type Data for Improving TFT-LCD Repair
-    Process," in IEEE Access, vol. 10, pp. 33026-33036, 2022, doi:
-    10.1109/ACCESS.2022.3158952.
+ACC23 main multi-classification model: prototype "Jackal". Essentially like
+Gordon but all channels are processed separately with their own vision encoder.
 """
 __docformat__ = "google"
 
@@ -17,52 +12,60 @@ from torch import Tensor, nn
 from acc23.constants import IMAGE_SIZE, N_CHANNELS, N_FEATURES, N_TARGETS
 
 from .base_mlc import BaseMultilabelClassifier
-from .layers import ResNetLinearLayer, concat_tensor_dict
+from .layers import concat_tensor_dict
 from .imagetabnet import VisionEncoder
 
 
-class Gordon(BaseMultilabelClassifier):
+class Jackal(BaseMultilabelClassifier):
     """See module documentation"""
 
     tabular_branch: nn.Module  # Dense input branch
-    vision_branch_a: nn.Module  # Conv. pool input branch
-    vision_branch_b: nn.Module  # Conv fusion encoder
+    pooling: nn.Module  # Image pooling / convolution before vision encoding
+    vision_encoders: nn.ModuleList  # Vision encoding
     main_branch: nn.Module  # Fusion branch
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
         self.save_hyperparameters()
-        n_features = 256
+        n_features = 64
         self.tabular_branch = nn.Sequential(
-            ResNetLinearLayer(N_FEATURES, 256),
-            ResNetLinearLayer(256, n_features),
+            nn.Linear(N_FEATURES, 128),
+            nn.BatchNorm1d(128),
+            nn.SiLU(),
+            nn.Linear(128, n_features),
+            nn.SiLU(),
         )
-        # self.vision_branch_a = nn.Sequential(
+        # self.pooling = nn.Sequential(
         #     nn.MaxPool2d(5, 1, 2),  # IMAGE_RESIZE_TO = 512 -> 512
         #     nn.Conv2d(N_CHANNELS, 8, 4, 2, 1, bias=False),  # -> 256
         #     nn.BatchNorm2d(8),
-        #     nn.SiLU(),
+        #     get_activation(activation),
         #     # nn.MaxPool2d(3, 1, 1),  # 256 -> 256
         # )
-        self.vision_branch_a = nn.Sequential(
-            nn.MaxPool2d(5, 2, 2),  # IMAGE_RESIZE_TO = 512 -> 256
-        )
-        self.vision_branch_b = VisionEncoder(
-            in_channels=N_CHANNELS,
-            out_channels=[
-                8,  # 256 -> 128
-                16,  # -> 64
-                16,  # -> 32
-                32,  # -> 16
-                32,  # -> 8
-                64,  # -> 4
-                128,  # -> 2
-                n_features,  # -> 1
-            ],
-            in_features=n_features,
+        self.pooling = nn.MaxPool2d(5, 2, 2)  # IMAGE_RESIZE_TO = 512 -> 256
+        self.vision_encoders = nn.ModuleList(
+            [
+                VisionEncoder(
+                    in_channels=1,
+                    out_channels=[
+                        4,  # 256 -> 128
+                        8,  # -> 64
+                        8,  # -> 32
+                        16,  # -> 16
+                        16,  # -> 8
+                        32,  # -> 4
+                        64,  # -> 2
+                        n_features,  # -> 1
+                    ],
+                    in_features=n_features,
+                )
+                for _ in range(N_CHANNELS)
+            ]
         )
         self.main_branch = nn.Sequential(
-            nn.Linear(2 * n_features, N_TARGETS),
+            nn.Linear(4 * n_features, n_features),
+            nn.SiLU(),
+            nn.Linear(n_features, N_TARGETS),
         )
         self.example_input_array = (
             torch.zeros((32, N_FEATURES)),
@@ -89,9 +92,9 @@ class Gordon(BaseMultilabelClassifier):
             x = concat_tensor_dict(x)
         x = x.float().to(self.device)  # type: ignore
         img = img.to(self.device)  # type: ignore
-        u = self.tabular_branch(x)
-        v = self.vision_branch_a(img)
-        v = self.vision_branch_b(v, u)
-        uv = torch.concatenate([u, v], dim=-1)
-        w = self.main_branch(uv)
-        return w
+        a = self.tabular_branch(x)
+        b = self.pooling(img)
+        cs = [ve(s, a) for ve, s in zip(self.vision_encoders, b.split(1, 1))]
+        d = torch.concatenate([a] + cs, dim=-1)
+        e = self.main_branch(d)
+        return e

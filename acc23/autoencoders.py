@@ -113,12 +113,12 @@ class AE(pl.LightningModule):
         x_hat = self.decode(z)
         return x_hat
 
+    # pylint: disable=missing-function-docstring
     def training_step(self, img: Tensor, *_, **__) -> Tensor:
-        """Override"""
         return self.evaluate(img, "train")
 
+    # pylint: disable=missing-function-docstring
     def validation_step(self, img: Tensor, *_, **__) -> Tensor:
-        """Override"""
         return self.evaluate(img, "val")
 
 
@@ -194,8 +194,8 @@ class VAE(pl.LightningModule):
         self.example_input_array = torch.zeros([32, *input_shape])
         self.forward(self.example_input_array)
 
+    # pylint: disable=missing-function-docstring
     def configure_optimizers(self):
-        """Override"""
         optimizer = torch.optim.Adam(self.parameters(), lr=1e-3)
         scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
             optimizer, mode="min", factor=0.2, patience=20, min_lr=5e-5
@@ -274,10 +274,10 @@ class VAE(pl.LightningModule):
         x_hat = self.decode(z)
         return x_hat
 
+    # pylint: disable=missing-function-docstring
     def training_step(self, x: Tensor, *_, **__) -> Tensor:
-        """Override"""
         return self.evaluate(x, "train")[0]
 
+    # pylint: disable=missing-function-docstring
     def validation_step(self, x: Tensor, *_, **__) -> Tensor:
-        """Override"""
         return self.evaluate(x, "val")[0]

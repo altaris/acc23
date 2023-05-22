@@ -49,8 +49,8 @@ class ResNetConvTransposeLayer(nn.Module):
             else nn.Identity()
         )
 
+    # pylint: disable=missing-function-docstring
     def forward(self, x: Tensor) -> Tensor:
-        """Override"""
         x = self.convolution(x)
         # x = self.normalization(x)
         x = self.activation(x)
@@ -95,8 +95,8 @@ class ResNetDecoderLayer(nn.Module):
             activation=last_activation,
         )
 
+    # pylint: disable=missing-function-docstring
     def forward(self, x: Tensor) -> Tensor:
-        """Override"""
         x = self.residual_blocks(x)
         x = self.convolution(x)
         return x
@@ -137,8 +137,8 @@ class ResNetEncoderLayer(nn.Module):
             ]
         )
 
+    # pylint: disable=missing-function-docstring
     def forward(self, x: Tensor) -> Tensor:
-        """Override"""
         x = self.convolution(x)
         x = self.residual_blocks(x)
         return x
@@ -179,8 +179,8 @@ class ResNetLinearLayer(nn.Module):
         )
         self.dropout = nn.Dropout(dropout) if dropout > 0 else nn.Identity()
 
+    # pylint: disable=missing-function-docstring
     def forward(self, x: Tensor) -> Tensor:
-        """Override"""
         a = self.linear(x)
         b = self.residual(x)
         ab = self.last_activation(a + b)
