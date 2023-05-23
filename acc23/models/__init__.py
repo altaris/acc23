@@ -11,3 +11,4 @@ from .gordon import Gordon
 from .helena import Helena
 from .ingrid import Ingrid
 from .jackal import Jackal
+from .kadgar import Kadgar
