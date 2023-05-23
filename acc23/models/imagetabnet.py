@@ -143,17 +143,7 @@ class VisionEncoder(nn.Module):
         c = [in_channels] + out_channels
         self.encoder_layers = nn.ModuleList(
             [
-                # nn.Sequential(
-                #     nn.Conv2d(c[i - 1], c[i], 4, 2, 1, bias=False),
-                #     get_activation(activation),
-                # )
                 ResNetConvLayer(c[i - 1], c[i], 3, 2, activation)
-                # ResNetEncoderLayer(
-                #     c[i - 1],
-                #     c[i],
-                #     n_blocks=3,
-                #     activation=activation,
-                # )
                 for i in range(1, len(c))
             ]
         )
