@@ -14,9 +14,8 @@ from sklearn.metrics import (
 from torch import Tensor, nn, optim
 
 from acc23.constants import (
-    N_TARGETS,
-    POSITIVE_TARGET_COUNTS,
-    POSITIVE_TARGET_RATIOS,
+    POSITIVE_TRUE_TARGET_COUNTS,
+    POSITIVE_TRUE_TARGET_RATIOS,
 )
 
 from .layers import concat_tensor_dict
@@ -58,14 +57,19 @@ class BaseMultilabelClassifier(pl.LightningModule):
         `<stage>/prec`, `<stage>/rec`, `<stage>/f1`, and `<stage>/f1_min`
         respectively.
         """
-        y_true = concat_tensor_dict(y).float().to(self.device)  # type: ignore
         out = self(x, img)  # out may be y_pred or (y_pred, extra loss term)
         y_pred, extra_loss = out if isinstance(out, tuple) else (out, 0.0)
+
+        y_true = concat_tensor_dict(y)
+        # Replace nan targets by predicted values
+        y_true = torch.where(y_true.isnan(), y_pred.detach(), y_true)
+        y_true = (y_true > 0.0).float().to(self.device)  # type: ignore
+
         y_true_np = y_true.cpu().detach().numpy()
         y_pred_np = y_pred.cpu().detach().numpy() > 0
         w = 1
-        positive_count = Tensor(POSITIVE_TARGET_COUNTS).to(y_pred.device)
-        # positive_ratio = Tensor(POSITIVE_TARGET_RATIOS).to(y_pred.device)
+        positive_count = Tensor(POSITIVE_TRUE_TARGET_COUNTS).to(y_pred.device)
+        # positive_ratio = Tensor(POSITIVE_TRUE_TARGET_RATIOS).to(y_pred.device)
         loss = (
             # nn.functional.mse_loss(y_pred.sigmoid(), y_true)
             # nn.functional.binary_cross_entropy_with_logits(y_pred, y_true)
@@ -88,14 +92,14 @@ class BaseMultilabelClassifier(pl.LightningModule):
         kw = {
             "y_true": y_true_np,
             "y_pred": y_pred_np,
-            "average": "samples",
+            "average": "macro",
             "zero_division": 0,
         }
         prec = precision_score(**kw)
         rec = recall_score(**kw)
         f1 = f1_score(**kw)
         f1_min = f1_score(
-            y_true_np, y_pred_np, zero_division=0, average=None
+            y_true=y_true_np, y_pred=y_pred_np, zero_division=0, average=None
         ).min()
         if stage is not None:
             self.log_dict(
@@ -270,12 +274,13 @@ def distribution_balanced_loss_with_logits(
     rebalanced cross entropy
     (`acc23.models.base_mlc.rebalanced_binary_cross_entropy_with_logits`).
     """
+    n_targets = y_true.shape[1]
     nu = -kappa * torch.log(1 / y_pred.sigmoid() - 1 + 1e-5)
     z = y_true * (y_pred - nu) + (1 - y_true) * (-1) * lambda_ * (y_pred - nu)
     foc = (y_true * (1 - z.sigmoid()) + (1 - y_true) * z.sigmoid()) ** gamma
     lmb = y_true + (1 - y_true) / (lambda_ + 1e-5)
-    pc = 1 / (N_TARGETS * positive_count + 1e-5)
-    pi = torch.sum(y_true / (N_TARGETS * positive_count + 1e-5), dim=-1)
+    pc = 1 / (n_targets * positive_count + 1e-5)
+    pi = torch.sum(y_true / (n_targets * positive_count + 1e-5), dim=-1)
     r = torch.outer(1 / (pi + 1e-5), pc)
     r_hat = alpha + torch.sigmoid(beta * (r - mu))
     bce = nn.functional.binary_cross_entropy_with_logits(
@@ -317,8 +322,9 @@ def rebalanced_binary_cross_entropy_with_logits(
         Long-Tailed Datasets
     """
     # positive_count: (C,), pc: (C,), pi: (N,) => r: (N, C)
-    pc = 1 / (N_TARGETS * (positive_count + 1e-10))
-    pi = torch.sum(y_true / (N_TARGETS * positive_count + 1e-10), dim=-1)
+    n_targets = y_true.shape[1]
+    pc = 1 / (n_targets * (positive_count + 1e-10))
+    pi = torch.sum(y_true / (n_targets * positive_count + 1e-10), dim=-1)
     r = torch.outer(1 / (pi + 1e-10), pc)
     r_hat = alpha + torch.sigmoid(beta * (r - mu))
     bce = nn.functional.binary_cross_entropy_with_logits(

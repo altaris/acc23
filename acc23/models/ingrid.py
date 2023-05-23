@@ -13,7 +13,7 @@ from torch import Tensor, nn
 from transformers.activations import get_activation
 from transformers.models.resnet.modeling_resnet import ResNetConvLayer
 
-from acc23.constants import IMAGE_SIZE, N_CHANNELS, N_FEATURES, N_TARGETS
+from acc23.constants import IMAGE_SIZE, N_CHANNELS, N_FEATURES, N_TRUE_TARGETS
 
 from .base_mlc import BaseMultilabelClassifier
 from .layers import ResNetLinearLayer, concat_tensor_dict
@@ -254,7 +254,7 @@ class Ingrid(BaseMultilabelClassifier):
             in_features=n_features,
         )
         self.main_branch = nn.Sequential(
-            nn.Linear(2 * n_features, N_TARGETS),
+            nn.Linear(2 * n_features, N_TRUE_TARGETS),
         )
         self.example_input_array = (
             torch.zeros((32, N_FEATURES)),

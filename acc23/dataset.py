@@ -12,7 +12,12 @@ import torch
 from loguru import logger as logging
 from torch.utils.data import DataLoader, Dataset
 
-from acc23.constants import IMAGE_SIZE, N_CHANNELS, TARGETS
+from acc23.constants import (
+    IMAGE_SIZE,
+    N_CHANNELS,
+    TARGETS,
+    TRUE_TARGETS,
+)
 from acc23.preprocessing import load_csv, load_image
 
 Transform_t = Callable[[torch.Tensor], torch.Tensor]
@@ -61,11 +66,10 @@ class ACCDataset(Dataset):
         row = self.data.loc[idx]
         p, xy = row["Chip_Image_Name"], row.drop(["Chip_Image_Name"])
         if all(map(lambda c: c in xy, TARGETS)):
-            # row has all target columns, i.e. this is probably the training
-            # dataset
-            x, y = dict(xy.drop(TARGETS)), dict(xy[TARGETS])
+            # row has all target columns, so this is probably the training ds
+            x, y = dict(xy.drop(TARGETS)), dict(xy[TRUE_TARGETS])
         else:
-            x, y = dict(xy), {}
+            x, y = dict(xy.drop(TARGETS, errors="ignore")), {}
         try:
             img = load_image(self.image_dir_path / p)
         except:

@@ -10,7 +10,7 @@ import torch
 from torch import Tensor, nn
 from transformers.activations import get_activation
 
-from acc23.constants import IMAGE_SIZE, N_CHANNELS, N_FEATURES, N_TARGETS
+from acc23.constants import IMAGE_SIZE, N_CHANNELS, N_FEATURES, N_TRUE_TARGETS
 
 from .base_mlc import BaseMultilabelClassifier
 from .layers import ResNetLinearLayer, concat_tensor_dict
@@ -91,7 +91,7 @@ class Euclid(BaseMultilabelClassifier):
             ResNetLinearLayer(256, 256),
             ResNetLinearLayer(256, 256),
             ResNetLinearLayer(256, 64),
-            ResNetLinearLayer(64, N_TARGETS),
+            ResNetLinearLayer(64, N_TRUE_TARGETS),
         )
         for p in self.parameters():
             if p.ndim >= 2:

@@ -12,7 +12,7 @@ import torch
 from torch import Tensor, nn
 from traitlets import Any
 
-from acc23.constants import N_FEATURES, N_TARGETS
+from acc23.constants import N_FEATURES, N_TRUE_TARGETS
 
 from .layers import (
     ResNetLinearLayer,
@@ -52,7 +52,7 @@ class Dexter(BaseMultilabelClassifier):
             ResNetLinearLayer(128, 128),
             ResNetLinearLayer(128, 128),
             ResNetLinearLayer(128, 64),
-            ResNetLinearLayer(64, N_TARGETS),
+            ResNetLinearLayer(64, N_TRUE_TARGETS),
         )
         self.example_input_array = (
             torch.zeros((32, N_FEATURES)),

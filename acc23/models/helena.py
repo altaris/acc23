@@ -13,7 +13,7 @@ from typing import Dict, Tuple, Union
 import torch
 from torch import Tensor, nn
 
-from acc23.constants import IMAGE_SIZE, N_CHANNELS, N_FEATURES, N_TARGETS
+from acc23.constants import IMAGE_SIZE, N_CHANNELS, N_FEATURES, N_TRUE_TARGETS
 
 from .base_mlc import BaseMultilabelClassifier
 from .imagetabnet import VisionEncoder
@@ -87,7 +87,7 @@ class Helena(BaseMultilabelClassifier):
             in_features=n_encoded_features,
         )
         self.fusion_branch = nn.Sequential(
-            nn.Linear(2 * n_encoded_features, N_TARGETS, bias=False),
+            nn.Linear(2 * n_encoded_features, N_TRUE_TARGETS, bias=False),
         )
         self.example_input_array = (
             torch.zeros((32, N_FEATURES)),

@@ -20,7 +20,7 @@ from transformers.models.resnet.modeling_resnet import (
     ResNetShortCut,
 )
 
-from acc23.constants import IMAGE_SIZE, N_CHANNELS, N_FEATURES, N_TARGETS
+from acc23.constants import IMAGE_SIZE, N_CHANNELS, N_FEATURES, N_TRUE_TARGETS
 from acc23.models.cbam import CBAM
 
 from .base_mlc import BaseMultilabelClassifier
@@ -149,18 +149,11 @@ class Kadgar(BaseMultilabelClassifier):
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
         self.save_hyperparameters()
-        n_features = 256
+        n_latent_features = 256
         self.tabular_branch = nn.Sequential(
             ResNetLinearLayer(N_FEATURES, 256),
-            ResNetLinearLayer(256, n_features),
+            ResNetLinearLayer(256, n_latent_features),
         )
-        # self.vision_branch_a = nn.Sequential(
-        #     nn.MaxPool2d(5, 1, 2),  # IMAGE_RESIZE_TO = 512 -> 512
-        #     nn.Conv2d(N_CHANNELS, 8, 4, 2, 1, bias=False),  # -> 256
-        #     nn.BatchNorm2d(8),
-        #     nn.SiLU(),
-        #     # nn.MaxPool2d(3, 1, 1),  # 256 -> 256
-        # )
         self.vision_branch_a = nn.Sequential(
             nn.MaxPool2d(5, 2, 2),  # IMAGE_RESIZE_TO = 512 -> 256
         )
@@ -174,12 +167,12 @@ class Kadgar(BaseMultilabelClassifier):
                 32,  # -> 8
                 64,  # -> 4
                 128,  # -> 2
-                n_features,  # -> 1
+                n_latent_features,  # -> 1
             ],
-            in_features=n_features,
+            in_features=n_latent_features,
         )
         self.main_branch = nn.Sequential(
-            nn.Linear(2 * n_features, N_TARGETS),
+            nn.Linear(2 * n_latent_features, N_TRUE_TARGETS),
         )
         self.example_input_array = (
             torch.zeros((32, N_FEATURES)),

@@ -96,7 +96,7 @@ def get_dtypes() -> dict:
         "Treatment_of_atopic_dematitis": str,  # Comma-sep lst of treatment codes
     }
     b = {allergen: np.float32 for allergen in IGES}
-    c = {target: np.uint8 for target in TARGETS}
+    c = {target: np.float32 for target in TARGETS}  # Some targets have nans
     return {**a, **b, **c}
 
 
@@ -159,6 +159,8 @@ def impute_dataframe(df: pd.DataFrame) -> pd.DataFrame:
     # Dummy imputers to retain all the columns
     non_impute_columns = [c for c in df.columns if c not in impute_columns]
     for c in non_impute_columns:
+        if c in TARGETS:  # Don't check nans in target columns
+            continue
         a, b = df[c].count(), len(df)
         if a != b:
             raise RuntimeError(
@@ -420,7 +422,12 @@ def preprocess_dataframe(df: pd.DataFrame) -> pd.DataFrame:
     ]
     allergen_trasforms = [([allergen], StandardScaler()) for allergen in IGES]
     target_transforms = [
-        ([target], FunctionTransformer())
+        (
+            [target],
+            FunctionTransformer(
+                map_replace, kw_args={"val": 9, "rep": np.nan}
+            ),
+        )
         for target in TARGETS
         if target in df.columns
     ]

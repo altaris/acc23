@@ -11,7 +11,7 @@ import pytorch_lightning as pl
 
 from acc23.autoencoders import AE, VAE
 from acc23.dataset import ACCDataset
-from acc23.models import Jackal as Model  # SET CORRECT MODEL CLASS HERE
+from acc23.models import Kadgar as Model  # SET CORRECT MODEL CLASS HERE
 from acc23.postprocessing import (
     evaluate_on_test_dataset,
     evaluate_on_train_dataset,
@@ -87,7 +87,6 @@ def main():
         "data/test.csv",
         "data/images",
         image_transform,
-        # load_csv_kwargs={"preprocess": False, "impute": False},
     )
     path = f"out/{dt}.{name}.test.csv"
     df.to_csv(path, index=False)
@@ -98,7 +97,6 @@ def main():
         "data/train.csv",
         "data/images",
         image_transform,
-        # load_csv_kwargs={"preprocess": False, "impute": False},
     )
     logging.debug(
         "Metrics on train set:\n{}",
