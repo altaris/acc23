@@ -172,7 +172,9 @@ cython_debug/
 # Other stuff
 *.ipynb
 *.tar.gz
+*.zip
 data/
+data.old/
 old/
 out/
 *.secret
