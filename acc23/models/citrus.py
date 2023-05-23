@@ -9,7 +9,7 @@ from typing import Any, Dict, Union
 import torch
 from torch import Tensor, nn
 
-from acc23.constants import IMAGE_SIZE, N_CHANNELS, N_FEATURES, N_TARGETS
+from acc23.constants import IMAGE_SIZE, N_CHANNELS, N_FEATURES, N_TRUE_TARGETS
 
 from .layers import (
     ResNetLinearLayer,
@@ -72,7 +72,7 @@ class Citrus(BaseMultilabelClassifier):
             ResNetLinearLayer(512, 256),
             ResNetLinearLayer(256, 128),
             ResNetLinearLayer(128, 64),
-            ResNetLinearLayer(64, N_TARGETS),
+            ResNetLinearLayer(64, N_TRUE_TARGETS),
         )
         self.example_input_array = (
             torch.zeros((32, N_FEATURES)),

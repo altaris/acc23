@@ -15,7 +15,7 @@ from typing import Any, Dict, Union
 import torch
 from torch import Tensor, nn
 
-from acc23.constants import IMAGE_SIZE, N_CHANNELS, N_FEATURES, N_TARGETS
+from acc23.constants import IMAGE_SIZE, N_CHANNELS, N_FEATURES, N_TRUE_TARGETS
 
 from .layers import (
     ResNetEncoderLayer,
@@ -70,7 +70,7 @@ class Ampere(BaseMultilabelClassifier):
             ResNetLinearLayer(256, 256),
             ResNetLinearLayer(256, 256),
             ResNetLinearLayer(256, 64),
-            ResNetLinearLayer(64, N_TARGETS),
+            ResNetLinearLayer(64, N_TRUE_TARGETS),
         )
         # for p in self.parameters():
         #     if p.ndim >= 2:

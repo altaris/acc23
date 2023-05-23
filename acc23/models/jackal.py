@@ -9,7 +9,7 @@ from typing import Any, Dict, Union
 import torch
 from torch import Tensor, nn
 
-from acc23.constants import IMAGE_SIZE, N_CHANNELS, N_FEATURES, N_TARGETS
+from acc23.constants import IMAGE_SIZE, N_CHANNELS, N_FEATURES, N_TRUE_TARGETS
 
 from .base_mlc import BaseMultilabelClassifier
 from .layers import concat_tensor_dict
@@ -64,7 +64,7 @@ class Jackal(BaseMultilabelClassifier):
         self.main_branch = nn.Sequential(
             nn.Linear(4 * n_features, n_features),
             nn.SiLU(),
-            nn.Linear(n_features, N_TARGETS),
+            nn.Linear(n_features, N_TRUE_TARGETS),
         )
         self.example_input_array = (
             torch.zeros((32, N_FEATURES)),

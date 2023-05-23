@@ -507,87 +507,111 @@ TARGETS = [
     "Type_of_Venom_Allergy_IGE_Venom",
 ]
 
-POSITIVE_TARGET_COUNTS = [
-    1635,
-    1152,
-    2310,
-    1779,
-    258,
-    797,
-    402,
-    743,
-    1558,
-    1088,
-    1698,
-    1406,
-    1460,
-    730,
+TRUE_TARGETS = [
+    # "Allergy_Present",  # Can be calculated directly from other targets
+    "Severe_Allergy",
+    # "Respiratory_Allergy",  # Can be calculated directly from other targets
+    # "Food_Allergy",  # Can be calculated directly from other targets
+    # "Venom_Allergy",  # Can be calculated directly from other targets
+    "Type_of_Respiratory_Allergy_ARIA",
+    "Type_of_Respiratory_Allergy_CONJ",
+    "Type_of_Respiratory_Allergy_GINA",
+    "Type_of_Respiratory_Allergy_IGE_Pollen_Gram",
+    "Type_of_Respiratory_Allergy_IGE_Pollen_Herb",
+    "Type_of_Respiratory_Allergy_IGE_Pollen_Tree",
+    "Type_of_Respiratory_Allergy_IGE_Dander_Animals",
+    "Type_of_Respiratory_Allergy_IGE_Mite_Cockroach",
+    "Type_of_Respiratory_Allergy_IGE_Molds_Yeast",
+    "Type_of_Food_Allergy_Aromatics",
+    "Type_of_Food_Allergy_Other",
+    "Type_of_Food_Allergy_Cereals_&_Seeds",
+    "Type_of_Food_Allergy_Egg",
+    "Type_of_Food_Allergy_Fish",
+    "Type_of_Food_Allergy_Fruits_and_Vegetables",
+    "Type_of_Food_Allergy_Mammalian_Milk",
+    "Type_of_Food_Allergy_Oral_Syndrom",
+    "Type_of_Food_Allergy_Other_Legumes",
+    "Type_of_Food_Allergy_Peanut",
+    "Type_of_Food_Allergy_Shellfish",
+    "Type_of_Food_Allergy_TPO",
+    "Type_of_Food_Allergy_Tree_Nuts",
+    "Type_of_Venom_Allergy_ATCD_Venom",
+    "Type_of_Venom_Allergy_IGE_Venom",
+]
+
+POSITIVE_TRUE_TARGET_COUNTS = [
+    12939,
+    789,
+    401,
+    746,
+    738,
+    515,
+    713,
+    680,
+    720,
+    355,
+    37,
+    0,
+    0,
+    47,
     52,
-    4,
-    56,
-    70,
-    68,
-    135,
-    38,
-    110,
-    71,
-    167,
-    58,
-    55,
-    219,
+    105,
+    26,
+    106,
+    57,
+    122,
+    45,
+    46,
+    162,
     23,
-    246,
+    19,
 ]
 """
 Ratio of rows that have positive targets
 
     import pandas as pd
-    from acc23.constants import TARGETS
+    from acc23.constants import TRUE_TARGETS
     df = pd.read_csv("data/train.csv")
-    t = df[TARGETS].to_numpy()
+    t = df[TRUE_TARGETS].to_numpy()
     t.sum(axis=0)
 
 TODO: Don't hardcode this :/
 """
 
-POSITIVE_TARGET_RATIOS = [
-    0.54700569,
-    0.38541318,
-    0.77283372,
-    0.59518234,
-    0.08631649,
-    0.26664436,
-    0.13449314,
-    0.24857812,
-    0.52124456,
-    0.36400134,
-    0.56808297,
-    0.47039144,
-    0.48845768,
-    0.24422884,
+POSITIVE_TRUE_TARGET_RATIOS = [
+    4.32887253,
+    0.26396788,
+    0.13415858,
+    0.2495818,
+    0.24690532,
+    0.17229843,
+    0.23854132,
+    0.22750084,
+    0.24088324,
+    0.11876882,
+    0.01237872,
+    0.0,
+    0.0,
+    0.01572432,
     0.01739712,
-    0.00133824,
-    0.01873536,
-    0.0234192,
-    0.02275008,
-    0.04516561,
-    0.01271328,
-    0.03680161,
-    0.02375376,
-    0.05587153,
-    0.01940448,
-    0.0184008,
-    0.07326865,
+    0.03512881,
+    0.00869856,
+    0.03546337,
+    0.01906992,
+    0.04081633,
+    0.0150552,
+    0.01538976,
+    0.05419873,
     0.00769488,
-    0.08230177,
+    0.00635664,
 ]
 """
 Ratio of rows that have positive targets
 
     import pandas as pd
-    from acc23.constants import TARGETS
+    from acc23.constants import TRUE_TARGETS
     df = pd.read_csv("data/train.csv")
-    t = df[TARGETS].to_numpy()
+    t = df[TRUE_TARGETS].to_numpy()
     t.sum(axis=0) / len(t)
 
 TODO: Don't hardcode this :/
@@ -596,6 +620,8 @@ TODO: Don't hardcode this :/
 N_TARGETS = len(TARGETS)
 """Number of target columns"""
 
+N_TRUE_TARGETS = len(TRUE_TARGETS)
+"""Number of true target columns"""
 
 IMAGE_SIZE = 512
 """
@@ -613,5 +639,12 @@ Even if this is 1, images will still be presented as `(C, H, W)` arrays.
 N_FEATURES = 474
 """
 Number of feature columns AFTER preprocessing, see
-`preprocessing.preprocess_dataframe`
+`preprocessing.preprocess_dataframe`, and not counting the `Chip_Image_Name`
+column. So this would be
+
+    from acc23.preprocessing import load_csv
+    from acc23.constants import N_TARGETS
+    df = load_csv("data/train.csv")
+    len(df.columns) - N_TARGETS - 1
+
 """

@@ -4,6 +4,7 @@ model to a submittable csv file
 """
 __docformat__ = "google"
 
+from collections import OrderedDict
 import json
 from pathlib import Path
 from typing import Optional, Tuple, Union
@@ -22,8 +23,9 @@ from sklearn.metrics import (
 from torch import Tensor, nn
 from torch.utils.data import DataLoader
 
-from acc23.constants import TARGETS
+from acc23.constants import TARGETS, TRUE_TARGETS
 from acc23.dataset import ACCDataset, Transform_t
+from acc23.preprocessing import load_csv
 
 
 def evaluate_on_dataset(
@@ -62,6 +64,8 @@ def evaluate_on_test_dataset(
     Evaluates a model on a test dataset, and returns a submittable dataframe
     (with all the target columns and the `trustii_id` column). The dataset at
     `csv_file_path` is assumed to have a `trustii_id` column.
+
+    Make sure that the input csv file is **NOT** preprocessed.
     """
     df = evaluate_on_dataset(
         model,
@@ -72,13 +76,8 @@ def evaluate_on_test_dataset(
         batch_size,
     )
     raw = pd.read_csv(csv_file_path)
-    if "trustii_id" in raw.columns:
-        ids = raw["trustii_id"]
-    else:
-        ids = pd.Series(range(len(df)), name="trustii_id")
-    df = pd.concat([ids, df], axis=1)
-    df.set_index("trustii_id")
-    return df
+    raw[TARGETS] = df[TARGETS]
+    return raw
 
 
 def evaluate_on_train_dataset(
@@ -91,9 +90,10 @@ def evaluate_on_train_dataset(
 ) -> Tuple[pd.DataFrame, pd.DataFrame]:
     """
     Evaluates a model on a training dataset. The dataset is assumed to have all
-    target columns. Also returns a metric dataframe.
+    target columns. Also returns a dataframe containing various performance
+    metrics on true target predictions.
     """
-    df = evaluate_on_dataset(
+    df_pred = evaluate_on_dataset(
         model,
         csv_file_path,
         image_dir_path,
@@ -101,88 +101,104 @@ def evaluate_on_train_dataset(
         load_csv_kwargs,
         batch_size,
     )
-    tgt = pd.read_csv(csv_file_path)[TARGETS]
-    n = len(df)
+    targets = TARGETS  # Can also use TRUE_TARGETS
+    df_true = load_csv(  # TODO: this is not pretty
+        csv_file_path,
+        preprocess=(load_csv_kwargs or {}).get("preprocess", True),
+        impute=False,
+    )
+    df_true = df_true[targets]
+    # Replace nan targets with predictions
+    df_true = df_true.where(df_true.notna(), df_pred[targets])
+    n = len(df_pred)
+    kw = {"zero_division": 0}
     metrics = pd.DataFrame(
         [
             [
-                tgt[t].sum() / n,
-                df[t].sum() / n,
-                f1_score(tgt[t], df[t], zero_division=0),
-                precision_score(tgt[t], df[t], zero_division=0),
-                recall_score(tgt[t], df[t], zero_division=0),
-                ((1 - df[t]) * (1 - tgt[t])).sum() / (1 - tgt[t]).sum(),
-                accuracy_score(tgt[t], df[t]),
+                df_true[t].sum() / n,
+                df_pred[t].sum() / n,
+                f1_score(df_true[t], df_pred[t], **kw),
+                precision_score(df_true[t], df_pred[t], **kw),
+                recall_score(df_true[t], df_pred[t], **kw),
+                ((1 - df_pred[t]) * (1 - df_true[t])).sum()
+                / (1 - df_true[t]).sum(),
+                accuracy_score(df_true[t], df_pred[t]),
             ]
-            for t in TARGETS
+            for t in targets
         ],
         columns=["prev_true", "prev_pred", "f1", "prec", "rec", "spec", "acc"],
-        index=TARGETS,
+        index=targets,
     )
-    return df, metrics
+    return df_pred, metrics
 
 
 def output_to_dataframe(y: Tensor) -> pd.DataFrame:
     """
-    Converts a raw model output logits, which is a `(N, T)` tensor, with `T`
-    being the number of targets (see `acc23.preprocessing.TARGETS`), to a
-    pandas dataframe. The 'fake' targets of `acc23.preprocessing.TARGETS` are
-    recalculated here. The `trustii_id` and `Patient_ID` columns are not added.
-    """
+    Converts a raw model output logits, which is a `(N, TT)` tensor, with `TT`
+    being the number of true targets (see `acc23.preprocessing.TRUE_TARGETS`),
+    to a pandas dataframe. The 'fake' targets of `acc23.preprocessing.TARGETS`
+    are recalculated here. The `trustii_id` and `Patient_ID` columns are not
+    added.
 
+    The order of the target columns is the same as the order in
+    `acc23.preprocessing.TARGETS`.
+    """
     arr = y.cpu().detach().numpy()
     arr = (arr > 0).astype(int)
-    df = pd.DataFrame(data=arr, columns=TARGETS)
-    # df["Allergy_Present"] = df.sum(axis=1).clip(0, 1)
-    # df["Respiratory_Allergy"] = (
-    #     df[
-    #         [
-    #             "Type_of_Respiratory_Allergy_ARIA",
-    #             "Type_of_Respiratory_Allergy_CONJ",
-    #             "Type_of_Respiratory_Allergy_GINA",
-    #             "Type_of_Respiratory_Allergy_IGE_Pollen_Gram",
-    #             "Type_of_Respiratory_Allergy_IGE_Pollen_Herb",
-    #             "Type_of_Respiratory_Allergy_IGE_Pollen_Tree",
-    #             "Type_of_Respiratory_Allergy_IGE_Dander_Animals",
-    #             "Type_of_Respiratory_Allergy_IGE_Mite_Cockroach",
-    #             "Type_of_Respiratory_Allergy_IGE_Molds_Yeast",
-    #         ]
-    #     ]
-    #     .sum(axis=1)
-    #     .clip(0, 1)
-    # )
-    # df["Food_Allergy"] = (
-    #     df[
-    #         [
-    #             "Type_of_Food_Allergy_Aromatics",
-    #             "Type_of_Food_Allergy_Other",
-    #             "Type_of_Food_Allergy_Cereals_&_Seeds",
-    #             "Type_of_Food_Allergy_Egg",
-    #             "Type_of_Food_Allergy_Fish",
-    #             "Type_of_Food_Allergy_Fruits_and_Vegetables",
-    #             "Type_of_Food_Allergy_Mammalian_Milk",
-    #             "Type_of_Food_Allergy_Oral_Syndrom",
-    #             "Type_of_Food_Allergy_Other_Legumes",
-    #             "Type_of_Food_Allergy_Peanut",
-    #             "Type_of_Food_Allergy_Shellfish",
-    #             "Type_of_Food_Allergy_TPO",
-    #             "Type_of_Food_Allergy_Tree_Nuts",
-    #         ]
-    #     ]
-    #     .sum(axis=1)
-    #     .clip(0, 1)
-    # )
-    # df["Venom_Allergy"] = (
-    #     df[
-    #         [
-    #             "Type_of_Venom_Allergy_ATCD_Venom",
-    #             "Type_of_Venom_Allergy_IGE_Venom",
-    #         ]
-    #     ]
-    #     .sum(axis=1)
-    #     .clip(0, 1)
-    # )
-    return df
+    data = OrderedDict.fromkeys(TARGETS)
+    for i, t in enumerate(TRUE_TARGETS):
+        data[t] = arr[:, i]
+    df = pd.DataFrame(data=data)
+    df["Allergy_Present"] = df.sum(axis=1).clip(0, 1)
+    df["Respiratory_Allergy"] = (
+        df[
+            [
+                "Type_of_Respiratory_Allergy_ARIA",
+                "Type_of_Respiratory_Allergy_CONJ",
+                "Type_of_Respiratory_Allergy_GINA",
+                "Type_of_Respiratory_Allergy_IGE_Pollen_Gram",
+                "Type_of_Respiratory_Allergy_IGE_Pollen_Herb",
+                "Type_of_Respiratory_Allergy_IGE_Pollen_Tree",
+                "Type_of_Respiratory_Allergy_IGE_Dander_Animals",
+                "Type_of_Respiratory_Allergy_IGE_Mite_Cockroach",
+                "Type_of_Respiratory_Allergy_IGE_Molds_Yeast",
+            ]
+        ]
+        .sum(axis=1)
+        .clip(0, 1)
+    )
+    df["Food_Allergy"] = (
+        df[
+            [
+                "Type_of_Food_Allergy_Aromatics",
+                "Type_of_Food_Allergy_Other",
+                "Type_of_Food_Allergy_Cereals_&_Seeds",
+                "Type_of_Food_Allergy_Egg",
+                "Type_of_Food_Allergy_Fish",
+                "Type_of_Food_Allergy_Fruits_and_Vegetables",
+                "Type_of_Food_Allergy_Mammalian_Milk",
+                "Type_of_Food_Allergy_Oral_Syndrom",
+                "Type_of_Food_Allergy_Other_Legumes",
+                "Type_of_Food_Allergy_Peanut",
+                "Type_of_Food_Allergy_Shellfish",
+                "Type_of_Food_Allergy_TPO",
+                "Type_of_Food_Allergy_Tree_Nuts",
+            ]
+        ]
+        .sum(axis=1)
+        .clip(0, 1)
+    )
+    df["Venom_Allergy"] = (
+        df[
+            [
+                "Type_of_Venom_Allergy_ATCD_Venom",
+                "Type_of_Venom_Allergy_IGE_Venom",
+            ]
+        ]
+        .sum(axis=1)
+        .clip(0, 1)
+    )
+    return df.astype(int)
 
 
 def submit_to_trustii(
@@ -212,11 +228,15 @@ def submit_to_trustii(
         endpoint_url, headers=headers, files=data, timeout=100
     )
     if response.status_code == 200:
-        logging.success("Predictions submitted")
+        logging.success("Predictions submitted to trustii")
         document = json.loads(response.text)
-        scores = document["data"]["publicScore"]
-        for k in sorted(list(scores.keys())):
-            logging.info("{}: {}", k, scores[k])
+        error = document["data"].get("error")
+        if error:
+            logging.error("Submission rejected: {}", error)
+        else:
+            scores = document["data"]["publicScore"]
+            for k in sorted(list(scores.keys())):
+                logging.info("{}: {}", k, scores[k])
     else:
         logging.error(
             "Submission failed: {} {}", response.status_code, response.text
