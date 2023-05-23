@@ -72,10 +72,10 @@ class BaseMultilabelClassifier(pl.LightningModule):
             # weighted_binary_cross_entropy_with_logits(
             #     y_pred, y_true, positive_ratio
             # )
-            rebalanced_binary_cross_entropy_with_logits(
-                y_pred, y_true, positive_count
-            )
-            # focal_loss_with_logits(y_pred, y_true)
+            # rebalanced_binary_cross_entropy_with_logits(
+            #     y_pred, y_true, positive_count
+            # )
+            focal_loss_with_logits(y_pred, y_true)
             # distribution_balanced_loss_with_logits(
             #     y_pred, y_true, positive_count
             # )
