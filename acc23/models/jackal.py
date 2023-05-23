@@ -27,7 +27,7 @@ class Jackal(BaseMultilabelClassifier):
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
         self.save_hyperparameters()
-        n_features = 64
+        n_features = 256
         self.tabular_branch = nn.Sequential(
             nn.Linear(N_FEATURES, 128),
             nn.BatchNorm1d(128),
@@ -35,26 +35,25 @@ class Jackal(BaseMultilabelClassifier):
             nn.Linear(128, n_features),
             nn.SiLU(),
         )
-        # self.pooling = nn.Sequential(
-        #     nn.MaxPool2d(5, 1, 2),  # IMAGE_RESIZE_TO = 512 -> 512
-        #     nn.Conv2d(N_CHANNELS, 8, 4, 2, 1, bias=False),  # -> 256
-        #     nn.BatchNorm2d(8),
-        #     get_activation(activation),
-        #     # nn.MaxPool2d(3, 1, 1),  # 256 -> 256
-        # )
-        self.pooling = nn.MaxPool2d(5, 2, 2)  # IMAGE_RESIZE_TO = 512 -> 256
+        self.pooling = nn.Sequential(
+            nn.MaxPool2d(5, 2, 2),  # IMAGE_RESIZE_TO = 512 -> 256
+            nn.Conv2d(N_CHANNELS, N_CHANNELS, 3, 2, 1, bias=False),  # -> 256
+            nn.BatchNorm2d(N_CHANNELS),
+            nn.SiLU(),
+        )
+        # self.pooling = nn.MaxPool2d(5, 2, 2)  # IMAGE_RESIZE_TO = 512 -> 256
         self.vision_encoders = nn.ModuleList(
             [
                 VisionEncoder(
                     in_channels=1,
                     out_channels=[
-                        4,  # 256 -> 128
-                        8,  # -> 64
+                        2,  # 256 -> 128
+                        4,  # -> 64
                         8,  # -> 32
                         16,  # -> 16
-                        16,  # -> 8
-                        32,  # -> 4
-                        64,  # -> 2
+                        32,  # -> 8
+                        64,  # -> 4
+                        128,  # -> 2
                         n_features,  # -> 1
                     ],
                     in_features=n_features,
