@@ -14,7 +14,10 @@ from typing import List
 import torch
 from torch import Tensor, nn
 from transformers.activations import get_activation
-from transformers.models.resnet.modeling_resnet import ResNetConvLayer
+from transformers.models.resnet.modeling_resnet import (
+    ResNetConfig,
+    ResNetStage,
+)
 
 # from acc23.models.layers import ResNetEncoderLayer
 
@@ -141,9 +144,14 @@ class VisionEncoder(nn.Module):
         """
         super().__init__()
         c = [in_channels] + out_channels
+        config = ResNetConfig(layer_type="basic", hidden_act=activation)
         self.encoder_layers = nn.ModuleList(
             [
-                ResNetConvLayer(c[i - 1], c[i], 3, 2, activation)
+                # ResNetConvLayer(c[i - 1], c[i], 3, 2, activation)
+                # ResNetBasicLayer(
+                #     c[i - 1], c[i], stride=2, activation=activation
+                # )
+                ResNetStage(config, c[i - 1], c[i], stride=2, depth=2)
                 for i in range(1, len(c))
             ]
         )

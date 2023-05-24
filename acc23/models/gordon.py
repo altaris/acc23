@@ -32,16 +32,16 @@ class Gordon(BaseMultilabelClassifier):
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
         self.save_hyperparameters()
-        n_features = 256
+        embed_dim, activation = 256, "gelu"
         self.tabular_branch = nn.Sequential(
-            ResNetLinearLayer(N_FEATURES, 256),
-            ResNetLinearLayer(256, n_features),
+            ResNetLinearLayer(N_FEATURES, 256, activation=activation),
+            ResNetLinearLayer(256, embed_dim, activation=activation),
         )
         # self.vision_branch_a = nn.Sequential(
         #     nn.MaxPool2d(5, 1, 2),  # IMAGE_RESIZE_TO = 512 -> 512
         #     nn.Conv2d(N_CHANNELS, 8, 4, 2, 1, bias=False),  # -> 256
         #     nn.BatchNorm2d(8),
-        #     nn.SiLU(),
+        #     get_activation(activation),
         #     # nn.MaxPool2d(3, 1, 1),  # 256 -> 256
         # )
         self.vision_branch_a = nn.Sequential(
@@ -57,12 +57,13 @@ class Gordon(BaseMultilabelClassifier):
                 32,  # -> 8
                 64,  # -> 4
                 128,  # -> 2
-                n_features,  # -> 1
+                embed_dim,  # -> 1
             ],
-            in_features=n_features,
+            in_features=embed_dim,
+            activation=activation,
         )
         self.main_branch = nn.Sequential(
-            nn.Linear(2 * n_features, N_TRUE_TARGETS),
+            nn.Linear(2 * embed_dim, N_TRUE_TARGETS),
         )
         self.example_input_array = (
             torch.zeros((32, N_FEATURES)),

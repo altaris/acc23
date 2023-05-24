@@ -12,8 +12,8 @@ from torch import Tensor, nn
 from acc23.constants import IMAGE_SIZE, N_CHANNELS, N_FEATURES, N_TRUE_TARGETS
 
 from .base_mlc import BaseMultilabelClassifier
-from .layers import concat_tensor_dict
 from .imagetabnet import VisionEncoder
+from .layers import concat_tensor_dict, linear_chain
 
 
 class Jackal(BaseMultilabelClassifier):
@@ -27,21 +27,29 @@ class Jackal(BaseMultilabelClassifier):
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
         self.save_hyperparameters()
-        n_features = 256
-        self.tabular_branch = nn.Sequential(
-            nn.Linear(N_FEATURES, 128),
-            nn.BatchNorm1d(128),
-            nn.SiLU(),
-            nn.Linear(128, n_features),
-            nn.SiLU(),
+        embed_dim, activation = 256, "gelu"
+        # self.tabular_branch = nn.Sequential(
+        #     nn.Linear(N_FEATURES, 128),
+        #     nn.BatchNorm1d(128),
+        #     nn.SiLU(),
+        #     nn.Linear(128, n_features),
+        #     nn.SiLU(),
+        # )
+        self.tabular_branch = linear_chain(
+            N_FEATURES,
+            [128, 128, embed_dim, embed_dim],
+            activation=activation,
         )
-        self.pooling = nn.Sequential(
-            nn.MaxPool2d(5, 2, 2),  # IMAGE_RESIZE_TO = 512 -> 256
-            nn.Conv2d(N_CHANNELS, N_CHANNELS, 3, 2, 1, bias=False),  # -> 256
-            nn.BatchNorm2d(N_CHANNELS),
-            nn.SiLU(),
-        )
-        # self.pooling = nn.MaxPool2d(5, 2, 2)  # IMAGE_RESIZE_TO = 512 -> 256
+        # self.pooling = nn.Sequential(
+        #     nn.MaxPool2d(5, 2, 2),  # IMAGE_RESIZE_TO = 512 -> 256
+        #     nn.Conv2d(N_CHANNELS, N_CHANNELS, 3, 1, 1, bias=False),  # -> 256
+        #     nn.BatchNorm2d(N_CHANNELS),
+        #     get_activation(activation),
+        # )
+        # self.pooling = ResNetBasicLayer(
+        #     N_CHANNELS, N_CHANNELS, stride=2, activation=activation
+        # )
+        self.pooling = nn.MaxPool2d(5, 2, 2)  # IMAGE_RESIZE_TO = 512 -> 256
         self.vision_encoders = nn.ModuleList(
             [
                 VisionEncoder(
@@ -54,17 +62,20 @@ class Jackal(BaseMultilabelClassifier):
                         32,  # -> 8
                         64,  # -> 4
                         128,  # -> 2
-                        n_features,  # -> 1
+                        embed_dim,  # -> 1
                     ],
-                    in_features=n_features,
+                    in_features=embed_dim,
+                    activation=activation,
+                    attention_after_last=True,
                 )
                 for _ in range(N_CHANNELS)
             ]
         )
-        self.main_branch = nn.Sequential(
-            nn.Linear(4 * n_features, n_features),
-            nn.SiLU(),
-            nn.Linear(n_features, N_TRUE_TARGETS),
+        self.main_branch = linear_chain(
+            4 * embed_dim,
+            [embed_dim, embed_dim, N_TRUE_TARGETS],
+            activation=activation,
+            last_activation="linear",
         )
         self.example_input_array = (
             torch.zeros((32, N_FEATURES)),

@@ -15,6 +15,38 @@ from transformers.activations import get_activation
 from acc23.constants import IMAGE_SIZE
 
 
+class ResidualLinearBlock(nn.Module):
+    """
+    Residual linear block from
+
+        Lim, Bee, et al. "Enhanced deep residual networks for single image
+        super-resolution." Proceedings of the IEEE conference on computer
+        vision and pattern recognition workshops. 2017.
+
+    Note that the input and output dimensions are the same
+    """
+
+    block: nn.Module
+
+    def __init__(
+        self,
+        embed_dim: int,
+        hidden_dim: Optional[int] = None,
+        activation: str = "relu",
+    ) -> None:
+        super().__init__()
+        hidden_dim = hidden_dim or embed_dim
+        self.block = nn.Sequential(
+            nn.Linear(embed_dim, hidden_dim),
+            get_activation(activation),
+            nn.Linear(hidden_dim, embed_dim),
+        )
+
+    # pylint: disable=missing-function-docstring
+    def forward(self, x: Tensor) -> Tensor:
+        return x + self.block(x)
+
+
 class ResNetConvTransposeLayer(nn.Module):
     """
     Just like `transformers.models.resnet.modeling_resnet.ResNetConvLayer`
@@ -77,10 +109,11 @@ class ResNetDecoderLayer(nn.Module):
         out_channels: int,
         n_blocks: int = 1,
         activation: str = "silu",
-        last_activation: str = "silu",
+        last_activation: Optional[str] = None,
         **kwargs,
     ) -> None:
         super().__init__(**kwargs)
+        last_activation = last_activation or activation
         self.residual_blocks = nn.Sequential(
             *[
                 ResNetBasicLayer(
@@ -158,12 +191,12 @@ class ResNetLinearLayer(nn.Module):
         out_features: int,
         latent_features: Optional[int] = None,
         activation: str = "silu",
-        last_activation: str = "silu",
+        last_activation: Optional[str] = None,
         dropout: float = 0.0,
-        **kwargs,
     ) -> None:
-        super().__init__(**kwargs)
+        super().__init__()
         latent_features = latent_features or out_features
+        last_activation = last_activation or activation
         self.last_activation = get_activation(last_activation)
         self.linear = nn.Sequential(
             nn.Linear(in_features, latent_features),
@@ -259,9 +292,10 @@ def linear_chain(
     n_inputs: int,
     n_neurons: List[int],
     activation: str = "silu",
-    last_activation: str = "silu",
+    last_activation: Optional[str] = None,
 ) -> nn.Sequential:
     """A sequence of linear layers."""
+    last_activation = last_activation or activation
     n, module = [n_inputs] + n_neurons, nn.Sequential()
     for i in range(1, len(n)):
         module.append(nn.Linear(n[i - 1], n[i]))

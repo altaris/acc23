@@ -11,7 +11,7 @@ import pytorch_lightning as pl
 
 from acc23.autoencoders import AE, VAE
 from acc23.dataset import ACCDataset
-from acc23.models import Kadgar as Model  # SET CORRECT MODEL CLASS HERE
+from acc23.models import Gordon as Model  # SET CORRECT MODEL CLASS HERE
 from acc23.postprocessing import (
     evaluate_on_test_dataset,
     evaluate_on_train_dataset,
