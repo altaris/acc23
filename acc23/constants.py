@@ -539,47 +539,8 @@ TRUE_TARGETS = [
     "Type_of_Venom_Allergy_IGE_Venom",
 ]
 
-POSITIVE_TRUE_TARGET_COUNTS = [
-    12939,
-    789,
-    401,
-    746,
-    738,
-    515,
-    713,
-    680,
-    720,
-    355,
-    37,
-    0,
-    0,
-    47,
-    52,
-    105,
-    26,
-    106,
-    57,
-    122,
-    45,
-    46,
-    162,
-    23,
-    19,
-]
-"""
-Ratio of rows that have positive targets
-
-    import pandas as pd
-    from acc23.constants import TRUE_TARGETS
-    df = pd.read_csv("data/train.csv")
-    t = df[TRUE_TARGETS].to_numpy()
-    t.sum(axis=0)
-
-TODO: Don't hardcode this :/
-"""
-
-POSITIVE_TRUE_TARGET_RATIOS = [
-    4.32887253,
+TRUE_TARGETS_PREVALENCE = [
+    0.34526598,
     0.26396788,
     0.13415858,
     0.2495818,
@@ -610,8 +571,9 @@ Ratio of rows that have positive targets
 
     import pandas as pd
     from acc23.constants import TRUE_TARGETS
-    df = pd.read_csv("data/train.csv")
-    t = df[TRUE_TARGETS].to_numpy()
+    df = pd.read_csv("data/train.pre.csv")[TRUE_TARGETS]
+    df = df.where(df.notna(), 0)
+    t = df.to_numpy()
     t.sum(axis=0) / len(t)
 
 TODO: Don't hardcode this :/

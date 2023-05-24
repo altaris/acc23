@@ -1,4 +1,5 @@
 """Base class for multilabel classifiers"""
+__docformat__ = "google"
 
 from typing import Any, Dict, Optional
 
@@ -13,10 +14,7 @@ from sklearn.metrics import (
 )
 from torch import Tensor, nn, optim
 
-from acc23.constants import (
-    POSITIVE_TRUE_TARGET_COUNTS,
-    POSITIVE_TRUE_TARGET_RATIOS,
-)
+from acc23.constants import TRUE_TARGETS_PREVALENCE
 
 from .layers import concat_tensor_dict
 
@@ -68,21 +66,15 @@ class BaseMultilabelClassifier(pl.LightningModule):
         y_true_np = y_true.cpu().detach().numpy()
         y_pred_np = y_pred.cpu().detach().numpy() > 0
         w = 1
-        positive_count = Tensor(POSITIVE_TRUE_TARGET_COUNTS).to(y_pred.device)
-        # positive_ratio = Tensor(POSITIVE_TRUE_TARGET_RATIOS).to(y_pred.device)
+        prevalence = Tensor(TRUE_TARGETS_PREVALENCE).to(y_pred.device)
         loss = (
             # nn.functional.mse_loss(y_pred.sigmoid(), y_true)
             # nn.functional.binary_cross_entropy_with_logits(y_pred, y_true)
-            # weighted_binary_cross_entropy_with_logits(
-            #     y_pred, y_true, positive_ratio
-            # )
             # rebalanced_binary_cross_entropy_with_logits(
-            #     y_pred, y_true, positive_count
+            #     y_pred, y_true, prevalence
             # )
-            focal_loss_with_logits(y_pred, y_true)
-            # distribution_balanced_loss_with_logits(
-            #     y_pred, y_true, positive_count
-            # )
+            # focal_loss_with_logits(y_pred, y_true)
+            distribution_balanced_loss_with_logits(y_pred, y_true, prevalence)
             # bp_mll_loss(y_pred.sigmoid(), y_true)
             # - w * continuous_f1_score(y_pred.sigmoid(), y_true)
             + extra_loss
@@ -178,7 +170,7 @@ def bp_mll_loss(y_pred: Tensor, y_true: Tensor, *_, **__) -> Tensor:
 def class_balanced_loss(
     y_pred: Tensor,
     y_true: Tensor,
-    positive_count: Tensor,
+    prevalence: Tensor,
     beta: float = 10.0,
     gamma: float = 2.0,
 ) -> Tensor:
@@ -190,7 +182,7 @@ def class_balanced_loss(
         Computer Vision and Pattern Recognition (CVPR), Long Beach, CA, USA,
         2019, pp. 9260-9269, doi: 10.1109/CVPR.2019.00949.
     """
-    r = (1 - beta) / (1 - beta**positive_count)
+    r = (1 - beta) / (1 - beta**prevalence)
     pt = y_true * y_pred + (1 - y_true) * (1 - y_pred)
     pt = (1 - pt) ** gamma
     bce = nn.functional.binary_cross_entropy(y_pred, y_true, reduction="none")
@@ -261,32 +253,35 @@ def continuous_f1_score(y_pred: Tensor, y_true: Tensor, *_, **__) -> Tensor:
 def distribution_balanced_loss_with_logits(
     y_pred: Tensor,
     y_true: Tensor,
-    positive_count: Tensor,
+    prevalence: Tensor,
     alpha: float = 0.1,
     beta: float = 10.0,
     mu: float = 0.3,
     gamma: float = 2.0,
     lambda_: float = 5.0,
-    kappa: float = 5e-3,
+    kappa: float = 5e-2,
 ) -> Tensor:
     """
     A mix between focal loss (`acc23.models.base_mlc.focal_loss_with_logits`) and
     rebalanced cross entropy
     (`acc23.models.base_mlc.rebalanced_binary_cross_entropy_with_logits`).
     """
-    n_targets = y_true.shape[1]
-    nu = -kappa * torch.log(1 / y_pred.sigmoid() - 1 + 1e-5)
-    z = y_true * (y_pred - nu) + (1 - y_true) * (-1) * lambda_ * (y_pred - nu)
-    foc = (y_true * (1 - z.sigmoid()) + (1 - y_true) * z.sigmoid()) ** gamma
+    nu = kappa * torch.log(1 / (prevalence + 1e-5) - 1 + 1e-5)
+    q_ns = y_true * (y_pred - nu) + (1 - y_true) * lambda_ * (y_pred - nu)
+    q = q_ns.sigmoid()
+    foc = (y_true * (1 - q) + (1 - y_true) * q) ** gamma
     lmb = y_true + (1 - y_true) / (lambda_ + 1e-5)
-    pc = 1 / (n_targets * positive_count + 1e-5)
-    pi = torch.sum(y_true / (n_targets * positive_count + 1e-5), dim=-1)
-    r = torch.outer(1 / (pi + 1e-5), pc)
+    # n_targets = y_true.shape[1]
+    # pc = 1 / (n_targets * prevalence + 1e-5)
+    # pi = torch.sum(y_true / (n_targets * prevalence + 1e-5), dim=-1)
+    # r = torch.outer(1 / (pi + 1e-5), pc)
+    r_pi = torch.sum(y_true / (prevalence + 1e-5), dim=-1)
+    r = 1 / (torch.outer(r_pi, prevalence) + 1e-5)
     r_hat = alpha + torch.sigmoid(beta * (r - mu))
     bce = nn.functional.binary_cross_entropy_with_logits(
-        z, y_true, reduction="none"
+        q_ns, y_true, reduction="none"
     )
-    return torch.mean(r_hat * lmb * foc * bce)
+    return (r_hat * lmb * foc * bce).sum(-1).mean()
 
 
 def focal_loss_with_logits(
@@ -304,13 +299,13 @@ def focal_loss_with_logits(
     bce = nn.functional.binary_cross_entropy_with_logits(
         y_pred, y_true, reduction="none"
     )
-    return torch.mean(foc * bce)
+    return (foc * bce).sum(-1).mean()
 
 
 def rebalanced_binary_cross_entropy_with_logits(
     y_pred: Tensor,
     y_true: Tensor,
-    positive_count: Tensor,
+    prevalence: Tensor,
     alpha: float = 0.1,
     beta: float = 10.0,
     mu: float = 0.3,
@@ -321,46 +316,15 @@ def rebalanced_binary_cross_entropy_with_logits(
         Distribution-Balanced Loss for Multi-Label Classification in
         Long-Tailed Datasets
     """
-    # positive_count: (C,), pc: (C,), pi: (N,) => r: (N, C)
-    n_targets = y_true.shape[1]
-    pc = 1 / (n_targets * (positive_count + 1e-10))
-    pi = torch.sum(y_true / (n_targets * positive_count + 1e-10), dim=-1)
-    r = torch.outer(1 / (pi + 1e-10), pc)
+    # prevalence: (C,), pc: (C,), pi: (N,) => r: (N, C)
+    # n_targets = y_true.shape[1]
+    # pc = 1 / (n_targets * prevalence + 1e-5)
+    # pi = torch.sum(y_true / (n_targets * prevalence + 1e-5), dim=-1)
+    # r = torch.outer(1 / (pi + 1e-5), pc)
+    r_pi = torch.sum(y_true / (prevalence + 1e-5), dim=-1)
+    r = 1 / (torch.outer(r_pi, prevalence) + 1e-5)
     r_hat = alpha + torch.sigmoid(beta * (r - mu))
     bce = nn.functional.binary_cross_entropy_with_logits(
         y_pred, y_true, reduction="none"
     )
-    return torch.mean(r_hat * bce)
-
-
-def weighted_binary_cross_entropy_with_logits(
-    y_pred: Tensor, y_true: Tensor, positive_ratio: Tensor
-) -> Tensor:
-    """
-    Binary crossentropy loss that takes the positive class ratio into account.
-    Use this in your fight against class imbalance. If `y_pred` and `y_true`
-    have shape `(N, T)`, then `positive_ratio` must have shape `(T,)`, where
-    `T` is the number of targets. The formula is as follows, where $r_p$ is
-    `positive_ratio`:
-    $$
-        L = - \\frac{1}{2} \\left(
-            \\frac{1}{r_p} y \\log \\sigma(x)
-            + \\frac{1}{1-r_p} (1-y) \\log (1-\\sigma(x))
-        \\right)
-    $$
-    The idea is that if $r_p$ is small (i.e. small positive class, large
-    negative class), then false negatives get penalized more. Conversely, if
-    $r_p$ is large (i.e. large positive class, small negative class), then
-    false positives get penalized more. The factor of $1/2$ is so that if the
-    classes are perfectly balanced (i.e. $r_p = 1/2$), then $L$ matches the
-    usual binary cross entropy loss.
-
-    See also:
-        https://pytorch.org/docs/stable/generated/torch.nn.BCELoss.html
-    """
-    u, v = 1 / (positive_ratio + 1e-10), 1 / (1 - positive_ratio + 1e-10)
-    w = y_true * u + (1 - y_true) * v
-    bce = nn.functional.binary_cross_entropy_with_logits(
-        y_pred, y_true, reduction="none"
-    )
-    return 0.5 * torch.mean(w * bce)
+    return (r_hat * bce).sum(-1).mean()
