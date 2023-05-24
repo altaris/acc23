@@ -11,10 +11,11 @@ vision encoder integrates CBAM modules from
 __docformat__ = "google"
 
 from itertools import zip_longest
-from typing import Any, Dict, List, Union
+from typing import Dict, List, Union
 
 import torch
 from torch import Tensor, nn
+from transformers.activations import get_activation
 from transformers.models.resnet.modeling_resnet import (
     ResNetConvLayer,
     ResNetShortCut,
@@ -25,7 +26,7 @@ from acc23.models.cbam import CBAM
 
 from .base_mlc import BaseMultilabelClassifier
 from .imagetabnet import AttentionModule
-from .layers import ResNetLinearLayer, concat_tensor_dict
+from .layers import concat_tensor_dict
 
 
 class ConvCBAM(nn.Module):
@@ -146,13 +147,16 @@ class Kadgar(BaseMultilabelClassifier):
     vision_branch_b: nn.Module  # Conv fusion encoder
     main_branch: nn.Module  # Fusion branch
 
-    def __init__(self, *args: Any, **kwargs: Any) -> None:
-        super().__init__(*args, **kwargs)
+    def __init__(self) -> None:
+        super().__init__()
         self.save_hyperparameters()
-        n_latent_features = 256
+        embed_dim, activation = 256, "gelu"
         self.tabular_branch = nn.Sequential(
-            ResNetLinearLayer(N_FEATURES, 256),
-            ResNetLinearLayer(256, n_latent_features),
+            nn.Linear(N_FEATURES, 128),
+            nn.BatchNorm1d(128),
+            get_activation(activation),
+            nn.Linear(128, embed_dim),
+            get_activation(activation),
         )
         self.vision_branch_a = nn.Sequential(
             nn.MaxPool2d(5, 2, 2),  # IMAGE_RESIZE_TO = 512 -> 256
@@ -167,12 +171,13 @@ class Kadgar(BaseMultilabelClassifier):
                 32,  # -> 8
                 64,  # -> 4
                 128,  # -> 2
-                n_latent_features,  # -> 1
+                embed_dim,  # -> 1
             ],
-            in_features=n_latent_features,
+            in_features=embed_dim,
+            activation=activation,
         )
         self.main_branch = nn.Sequential(
-            nn.Linear(2 * n_latent_features, N_TRUE_TARGETS),
+            nn.Linear(2 * embed_dim, N_TRUE_TARGETS),
         )
         self.example_input_array = (
             torch.zeros((32, N_FEATURES)),

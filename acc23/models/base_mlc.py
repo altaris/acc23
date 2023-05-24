@@ -65,16 +65,14 @@ class BaseMultilabelClassifier(pl.LightningModule):
 
         y_true_np = y_true.cpu().detach().numpy()
         y_pred_np = y_pred.cpu().detach().numpy() > 0
-        w = 1
+        w = 1.0
         prevalence = Tensor(TRUE_TARGETS_PREVALENCE).to(y_pred.device)
         loss = (
-            # nn.functional.mse_loss(y_pred.sigmoid(), y_true)
+            10 * nn.functional.mse_loss(y_pred.sigmoid(), y_true)
             # nn.functional.binary_cross_entropy_with_logits(y_pred, y_true)
-            # rebalanced_binary_cross_entropy_with_logits(
-            #     y_pred, y_true, prevalence
-            # )
-            # focal_loss_with_logits(y_pred, y_true)
-            distribution_balanced_loss_with_logits(y_pred, y_true, prevalence)
+            # rebalanced_bce_with_logits(y_pred, y_true, prevalence)
+            + focal_loss_with_logits(y_pred, y_true)
+            # distribution_balanced_loss_with_logits(y_pred, y_true, prevalence)
             # bp_mll_loss(y_pred.sigmoid(), y_true)
             # - w * continuous_f1_score(y_pred.sigmoid(), y_true)
             + extra_loss
@@ -204,46 +202,8 @@ def continuous_hamming_loss(
 
 def continuous_f1_score(y_pred: Tensor, y_true: Tensor, *_, **__) -> Tensor:
     """
-    Implementation of the F1 score as specified by the challenge organizers:
-
-        Let y_true (test labels) and y_pred (your predictions) be matrices with
-        the same dimensions, where the columns represent the individual classes
-        in a multi-label classification setting.
-
-        1/ we calculate mean precision (P) and mean recall (R) for each column
-        i:
-
-            P(i) = mean(sum(y_true(i) * y_pred(i)) / (sum(y_pred(i)) + 1e-10))
-            R(i) = mean(sum(y_true(i) * y_pred(i)) / (sum(y_true(i)) + 1e-10))
-
-        2/ we calculate the F1 score for each column i using the formula:
-
-            F1(i) = 2 * P(i) * R(i) / (P(i) + R(i) + 1e-10)
-
-        3/ we compute the mean F1 score across all columns:
-
-            mean_F1 = mean(F1(i)) for all i
-
-        This mean_F1 value is the score.
-
-    After experimentation, this seems to correspond to
-    `sklearn.metrics.f1_score` with `average=macro`:
-
-        import numpy as np
-        from sklearn.metrics import f1_score
-        from acc23.models.base_mlc import f1
-
-        y_true = np.random.uniform(0, 1, [100, 20]) > .5
-        y_pred = np.random.uniform(0, 1, [100, 20]) > .5
-
-        for a in ["micro", "macro", "samples", "weighted"]:
-            print(
-                "sklearn.metrics.f1_score with average =", a,
-                f1_score(y_true, y_pred, average=a)
-            )
-        print("Challenge implementation", continuous_f1_score(y_pred, y_true))
-
-    `y_pred` is expected to contain class probabilities.
+    Continuous macro-f1 score. `y_pred` is expected to contain class
+    probabilities, not logits.
     """
     p, pp, tp = y_true.sum(0), y_pred.sum(0), (y_true * y_pred).sum(0)
     pr, re = tp / (pp + 1e-10), tp / (p + 1e-10)
@@ -302,7 +262,7 @@ def focal_loss_with_logits(
     return (foc * bce).sum(-1).mean()
 
 
-def rebalanced_binary_cross_entropy_with_logits(
+def rebalanced_bce_with_logits(
     y_pred: Tensor,
     y_true: Tensor,
     prevalence: Tensor,
