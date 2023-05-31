@@ -8,11 +8,10 @@ See also:
     https://lightning.ai/docs/pytorch/stable/notebooks/course_UvA-DL/11-vision-transformer.html
 """
 
-from typing import Optional, Tuple
+from typing import Tuple
 
 import torch
 from torch import Tensor, nn
-from transformers.activations import get_activation
 
 
 def make_patches(imgs: Tensor, patch_size: int) -> Tensor:
@@ -35,42 +34,42 @@ def make_patches(imgs: Tensor, patch_size: int) -> Tensor:
     return imgs
 
 
-class TransformerEncoder(nn.Module):
-    """Transformer encoder"""
+# class TransformerEncoder(nn.Module):
+#     """Transformer encoder"""
 
-    norm_1: nn.Module
-    norm_2: nn.Module
-    mha: nn.Module
-    mlp: nn.Module
+#     norm_1: nn.Module
+#     norm_2: nn.Module
+#     mha: nn.Module
+#     mlp: nn.Module
 
-    def __init__(
-        self,
-        embed_dim: int,
-        hidden_dim: Optional[int] = None,
-        n_heads: int = 4,
-        dropout: float = 0.0,
-        activation: str = "gelu",
-    ) -> None:
-        super().__init__()
-        hidden_dim = hidden_dim or embed_dim
-        self.norm_1 = nn.LayerNorm(embed_dim)
-        self.norm_2 = nn.LayerNorm(embed_dim)
-        self.mha = nn.MultiheadAttention(embed_dim, n_heads, dropout)
-        self.mlp = nn.Sequential(
-            nn.Linear(embed_dim, hidden_dim),
-            get_activation(activation),
-            nn.Dropout(dropout),
-            nn.Linear(hidden_dim, embed_dim),
-            nn.Dropout(dropout),
-        )
+#     def __init__(
+#         self,
+#         embed_dim: int,
+#         hidden_dim: Optional[int] = None,
+#         n_heads: int = 4,
+#         dropout: float = 0.0,
+#         activation: str = "gelu",
+#     ) -> None:
+#         super().__init__()
+#         hidden_dim = hidden_dim or embed_dim
+#         self.norm_1 = nn.LayerNorm(embed_dim)
+#         self.norm_2 = nn.LayerNorm(embed_dim)
+#         self.mha = nn.MultiheadAttention(embed_dim, n_heads, dropout)
+#         self.mlp = nn.Sequential(
+#             nn.Linear(embed_dim, hidden_dim),
+#             get_activation(activation),
+#             nn.Dropout(dropout),
+#             nn.Linear(hidden_dim, embed_dim),
+#             nn.Dropout(dropout),
+#         )
 
-    # pylint: disable=missing-function-docstring
-    def forward(self, x: Tensor) -> Tensor:
-        a = self.norm_1(x)
-        b = x + self.mha(a, a, a)[0]
-        c = self.norm_2(b)
-        d = x + self.mlp(c)
-        return d
+#     # pylint: disable=missing-function-docstring
+#     def forward(self, x: Tensor) -> Tensor:
+#         a = self.norm_1(x)
+#         b = x + self.mha(a, a, a)[0]
+#         c = self.norm_2(b)
+#         d = x + self.mlp(c)
+#         return d
 
 
 class VisionTransformer(nn.Module):
@@ -108,11 +107,17 @@ class VisionTransformer(nn.Module):
         )
         self.transformers = nn.Sequential(
             *[
-                TransformerEncoder(
-                    embed_dim=embed_dim,
-                    hidden_dim=hidden_dim,
-                    n_heads=n_heads,
-                    dropout=dropout,
+                # TransformerEncoder(
+                #     embed_dim=embed_dim,
+                #     hidden_dim=hidden_dim,
+                #     n_heads=n_heads,
+                #     dropout=dropout,
+                #     activation=activation,
+                # )
+                nn.TransformerEncoderLayer(
+                    d_model=embed_dim,
+                    nhead=n_heads,
+                    dim_feedforward=hidden_dim,
                     activation=activation,
                 )
                 for _ in range(n_transformers)
