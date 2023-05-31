@@ -322,7 +322,7 @@ IGES = [
     "Zea_m",
     "Zea_m_14",
 ]
-"""Allergen columns"""
+"""IgE columns"""
 
 CLASSES = {
     "Chip_Type": ["ALEX", "ISAC_V1", "ISAC_V2"],
@@ -538,6 +538,46 @@ TRUE_TARGETS = [
     "Type_of_Venom_Allergy_ATCD_Venom",
     "Type_of_Venom_Allergy_IGE_Venom",
 ]
+
+TRUE_TARGETS_COUNT = [
+    1032,
+    789,
+    401,
+    746,
+    738,
+    515,
+    713,
+    680,
+    720,
+    355,
+    37,
+    0,
+    0,
+    47,
+    52,
+    105,
+    26,
+    106,
+    57,
+    122,
+    45,
+    46,
+    162,
+    23,
+    19,
+]
+"""
+Ratio of rows that have positive targets
+
+    import pandas as pd
+    from acc23.constants import TRUE_TARGETS
+    df = pd.read_csv("data/train.pre.csv")[TRUE_TARGETS]
+    df = df.where(df.notna(), 0)
+    t = df.to_numpy()
+    t.sum(axis=0)
+
+TODO: Don't hardcode this :/
+"""
 
 TRUE_TARGETS_PREVALENCE = [
     0.34526598,
