@@ -17,8 +17,8 @@ from torch import Tensor, nn
 from acc23.constants import IMAGE_SIZE, N_CHANNELS, N_FEATURES, N_TRUE_TARGETS
 
 from .base_mlc import BaseMultilabelClassifier
-from .layers import ResNetLinearLayer, concat_tensor_dict
 from .imagetabnet import VisionEncoder
+from .layers import ResNetLinearLayer, concat_tensor_dict, linear_chain
 
 
 class Gordon(BaseMultilabelClassifier):
@@ -32,10 +32,15 @@ class Gordon(BaseMultilabelClassifier):
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
         self.save_hyperparameters()
-        embed_dim, activation = 256, "gelu"
-        self.tabular_branch = nn.Sequential(
-            ResNetLinearLayer(N_FEATURES, 256, activation=activation),
-            ResNetLinearLayer(256, embed_dim, activation=activation),
+        embed_dim, activation = 512, "gelu"
+        # self.tabular_branch = nn.Sequential(
+        #     ResNetLinearLayer(N_FEATURES, 256, activation=activation),
+        #     ResNetLinearLayer(256, embed_dim, activation=activation),
+        # )
+        self.tabular_branch = linear_chain(
+            N_FEATURES,
+            [256, 256, embed_dim],
+            activation=activation,
         )
         # self.vision_branch_a = nn.Sequential(
         #     nn.MaxPool2d(5, 1, 2),  # IMAGE_RESIZE_TO = 512 -> 512
@@ -51,13 +56,11 @@ class Gordon(BaseMultilabelClassifier):
             in_channels=N_CHANNELS,
             out_channels=[
                 8,  # 256 -> 128
-                16,  # -> 64
+                8,  # -> 64
                 16,  # -> 32
-                32,  # -> 16
+                16,  # -> 16
                 32,  # -> 8
-                64,  # -> 4
-                128,  # -> 2
-                embed_dim,  # -> 1
+                32,  # -> 4 => 512
             ],
             in_features=embed_dim,
             activation=activation,
