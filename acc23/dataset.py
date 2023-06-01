@@ -18,6 +18,7 @@ from acc23.constants import (
     TARGETS,
     TRUE_TARGETS,
 )
+from acc23.mlsmote import mlsmote
 from acc23.preprocessing import load_csv, load_image
 
 Transform_t = Callable[[torch.Tensor], torch.Tensor]
@@ -63,16 +64,16 @@ class ACCDataset(Dataset):
         return len(self.data)
 
     def __getitem__(self, idx: int) -> Tuple[dict, dict, torch.Tensor]:
-        row = self.data.loc[idx]
+        row = self.data.iloc[idx]
         p, xy = row["Chip_Image_Name"], row.drop(["Chip_Image_Name"])
         if all(map(lambda c: c in xy, TARGETS)):
             # row has all target columns, so this is probably the training ds
             x, y = dict(xy.drop(TARGETS)), dict(xy[TRUE_TARGETS])
         else:
             x, y = dict(xy.drop(TARGETS, errors="ignore")), {}
-        try:
+        if isinstance(p, str) and (self.image_dir_path / p).is_file():
             img = load_image(self.image_dir_path / p)
-        except:
+        else:
             img = torch.zeros((N_CHANNELS, IMAGE_SIZE, IMAGE_SIZE))
         img = self.image_transform(img)
         return x, y, img
