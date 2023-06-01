@@ -8,12 +8,11 @@ from typing import Dict, Union
 
 import torch
 from torch import Tensor, nn
-from transformers.activations import get_activation
 
 from acc23.constants import IMAGE_SIZE, N_CHANNELS, N_FEATURES, N_TRUE_TARGETS
 
 from .base_mlc import BaseMultilabelClassifier
-from .layers import ResidualLinearBlock, concat_tensor_dict
+from .layers import concat_tensor_dict, linear_chain
 from .vit import VisionTransformer
 
 
@@ -29,15 +28,20 @@ class London(BaseMultilabelClassifier):
         self.save_hyperparameters()
         embed_dim, activation = 256, "gelu"
         # patch_size, n_transformers, n_heads, dropout = 32, 8, 8, 0.2
-        patch_size, n_transformers, n_heads, dropout = 16, 8, 8, 0.2
-        self.tabular_encoder = nn.Sequential(
-            nn.Linear(N_FEATURES, 256),
-            get_activation(activation),
-            ResidualLinearBlock(256, activation=activation),
-            ResidualLinearBlock(256, activation=activation),
-            ResidualLinearBlock(256, activation=activation),
-            nn.Linear(256, embed_dim),
-            get_activation(activation),
+        patch_size, n_transformers, n_heads, dropout = 16, 16, 8, 0.0
+        # self.tabular_encoder = nn.Sequential(
+        #     nn.Linear(N_FEATURES, 256),
+        #     get_activation(activation),
+        #     ResidualLinearBlock(256, activation=activation),
+        #     ResidualLinearBlock(256, activation=activation),
+        #     ResidualLinearBlock(256, activation=activation),
+        #     nn.Linear(256, embed_dim),
+        #     get_activation(activation),
+        # )
+        self.tabular_encoder = linear_chain(
+            N_FEATURES,
+            [512, embed_dim],
+            activation=activation,
         )
         self.vision_transformer = nn.Sequential(
             nn.MaxPool2d(5, 2, 2),  # 512 -> 256
@@ -53,13 +57,19 @@ class London(BaseMultilabelClassifier):
                 activation=activation,
             ),
         )
-        self.main_branch = nn.Sequential(
-            nn.Linear(2 * embed_dim, 256),
-            get_activation(activation),
-            ResidualLinearBlock(256, activation=activation),
-            ResidualLinearBlock(256, activation=activation),
-            ResidualLinearBlock(256, activation=activation),
-            nn.Linear(256, N_TRUE_TARGETS),
+        # self.main_branch = nn.Sequential(
+        #     nn.Linear(2 * embed_dim, 256),
+        #     get_activation(activation),
+        #     ResidualLinearBlock(256, activation=activation),
+        #     ResidualLinearBlock(256, activation=activation),
+        #     ResidualLinearBlock(256, activation=activation),
+        #     nn.Linear(256, N_TRUE_TARGETS),
+        # )
+        self.main_branch = linear_chain(
+            2 * embed_dim,
+            [embed_dim, N_TRUE_TARGETS],
+            activation=activation,
+            last_activation="linear",
         )
         self.example_input_array = (
             torch.zeros((32, N_FEATURES)),

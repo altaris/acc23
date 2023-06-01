@@ -11,7 +11,7 @@ from loguru import logger as logging
 from PIL import Image
 from rich.progress import track
 from sklearn.base import TransformerMixin
-from sklearn.impute import SimpleImputer
+from sklearn.impute import KNNImputer, SimpleImputer
 from sklearn.preprocessing import (
     FunctionTransformer,
     MinMaxScaler,
@@ -23,12 +23,14 @@ from sklearn_pandas.pipeline import make_transformer_pipeline
 from torchvision.transforms.functional import pad, resize
 
 from acc23.constants import (
-    IGES,
     CLASSES,
+    IGES,
     IMAGE_SIZE,
     N_CHANNELS,
     TARGETS,
+    TRUE_TARGETS,
 )
+from acc23.mlsmote import mlsmote
 
 
 class MultiLabelSplitBinarizer(TransformerMixin):
@@ -85,7 +87,7 @@ def get_dtypes() -> dict:
         "French_Residence_Department": str,
         "French_Region": str,
         "Rural_or_urban_area": np.float32,  # spec says it can be nan
-        "Sensitization": np.uint8,
+        "Sensitization": np.int64,
         "Food_Type_0": str,
         "Food_Type_2": str,  # In the spec but not in the csv files?
         "Treatment_of_rhinitis": str,  # Comma-sep lst of codes
@@ -95,7 +97,7 @@ def get_dtypes() -> dict:
         "General_cofactors": str,  # Comma-sep lst of codes
         "Treatment_of_atopic_dematitis": str,  # Comma-sep lst of treatment codes
     }
-    b = {allergen: np.float32 for allergen in IGES}
+    b = {ige: np.float32 for ige in IGES}
     c = {target: np.float32 for target in TARGETS}  # Some targets have nans
     return {**a, **b, **c}
 
@@ -130,56 +132,70 @@ def impute_dataframe(df: pd.DataFrame) -> pd.DataFrame:
     Performs various imputation tasks on the dataframe.
 
     TODO: list all of them
+
+    Warning:
+        In the case of KNN imputation, the order of the columns is changed!
     """
     logging.debug("Imputing dataframe")
 
-    # PMF imputation for allergen columns
-    a = df[IGES].to_numpy()
-    df[IGES] = pmf_impute(
-        a,
-        30,
-        sigma_x=0.1,
-        sigma_y=0.1,
-        sigma_v=0.1,
-        sigma_w=0.1,
-    )
+    # PMF imputation for IgE columns
+    # df[IGES] = pmf_impute(
+    #     df[IGES].to_numpy(),
+    #     latent_dim=512,
+    #     sigma_x=0.1,
+    #     sigma_y=0.1,
+    #     sigma_v=0.1,
+    #     sigma_w=0.1,
+    # )
 
     # Simple imputations
     imputers = [
         (["Age"], SimpleImputer()),
         (["Gender"], SimpleImputer(strategy="most_frequent")),
-        # (IGES, KNNImputer()),
+        (IGES, KNNImputer()),
     ]
-    # Check that non-impute columns don't have nans
+    # Some targets have NaNs, which is absurd. Fortunately, most true
+    # targets don't, except for Severe_Allergy (1323/2989 NaNs, 44.26%)
+    if TARGETS[0] in df.columns:
+        imputers.append((TARGETS, SimpleImputer(strategy="most_frequent")))
     impute_columns: List[str] = []
     for i in imputers:
         c: Union[str, List[str]] = i[0]
         impute_columns += c if isinstance(c, list) else [c]
 
-    # Dummy imputers to retain all the columns
+    # Check that non-impute columns don't have NaNs
     non_impute_columns = [c for c in df.columns if c not in impute_columns]
     for c in non_impute_columns:
-        if c in TARGETS:  # Don't check nans in target columns
-            continue
         a, b = df[c].count(), len(df)
         if a != b:
-            raise RuntimeError(
-                f"Columns '{c}' is marked for non-imputation but it has "
-                f"{b - a} / {b} nan values ({(b - a) / b * 100} %)"
+            logging.warning(
+                "Columns '{}' is marked for non-imputation but it has "
+                "{} / {} NaN values ({} %)",
+                c,
+                b - a,
+                b,
+                round((b - a) / b * 100, 3),
             )
 
+    # Dummy imputers to retain all the columns
     dummy_imputers = [(c, FunctionTransformer()) for c in non_impute_columns]
+
     # There's some issues if we ask the mapper to return a dataframe
-    # (df_out=True): All allergen columns get merged :/ Instead we get an array
-    # and reconstruct the dataframe around it being careful with the order of
-    # the column names
+    # (df_out=True): All IgE columns get merged :/ Instead we get an array and
+    # reconstruct the dataframe around it being careful with the order of the
+    # column names
     mapper = DataFrameMapper(imputers + dummy_imputers)
     x = mapper.fit_transform(df)
-    return pd.DataFrame(data=x, columns=impute_columns + non_impute_columns)
+    df = pd.DataFrame(data=x, columns=impute_columns + non_impute_columns)
+    return df.infer_objects()
 
 
 def load_csv(
-    path: Union[str, Path], preprocess: bool = True, impute: bool = True
+    path: Union[str, Path],
+    preprocess: bool = True,
+    impute: bool = True,
+    oversample: bool = False,
+    n_oversample_rounds: int = 1,
 ) -> pd.DataFrame:
     """
     Opens a csv dataframe (presumable `data/train.csv` or `data/test.csv`),
@@ -191,23 +207,32 @@ def load_csv(
         path (Union[str, Path]): Path of the csv file.
         preprocess (bool): Wether the dataframe should go through
             `acc23.preprocessing.preprocess_dataframe`.
-        impute (bool): Wether the dataframe should be imputed (see
+        impute (bool): Whether the dataframe should be imputed (see
             `acc23.preprocessing.impute_dataframe`). Note that imputation is
             not performed if `preprocess=False`.
+        oversample (bool): Whether should be oversampled to try and fix class
+            imbalance (see `acc23.mlsmote.mlsmote`). Note that oversampling is
+            not performed if `preprocess=False` or if `impute=False`.
+        n_oversample_rounds (int): Numver of MLSMOTE rounds, i.e. number of
+            times MLSMOTE should be applied to the dataset. Defaults to 1.
     """
     logging.debug("Loading dataframe {}", path)
     dtypes = get_dtypes()
-    df = pd.read_csv(path, dtype=dtypes)
-    # Apparently typing 1 time isn't enough
+    df = pd.read_csv(path)
+    # Apparently typing only once isn't enough
     df = df.astype({c: t for c, t in dtypes.items() if c in df.columns})
     if preprocess:
         df = preprocess_dataframe(df)
-        if impute:
-            df = impute_dataframe(df)
-        else:
-            logging.debug("Skipped imputation")
     else:
-        logging.debug("Skipped preprocessing and imputation")
+        logging.debug("Skipped preprocessing")
+    if impute and preprocess:
+        df = impute_dataframe(df)
+    else:
+        logging.debug("Skipped imputation")
+    if oversample and impute and preprocess:
+        df = mlsmote(df, TRUE_TARGETS, n_rounds=n_oversample_rounds)
+    else:
+        logging.debug("Skipped oversampling")
     return df
 
 
@@ -318,7 +343,20 @@ def preprocess_dataframe(df: pd.DataFrame) -> pd.DataFrame:
             ["Chip_Type"],
             MultiLabelBinarizer(classes=CLASSES["Chip_Type"]),
         ),
-        ("Chip_Image_Name", FunctionTransformer()),  # identity
+        (
+            "Chip_Image_Name",
+            make_transformer_pipeline(
+                FunctionTransformer(
+                    map_replace, kw_args={"val": "nan", "rep": None}
+                ),
+                FunctionTransformer(
+                    map_replace, kw_args={"val": "NaN", "rep": None}
+                ),
+                FunctionTransformer(
+                    map_replace, kw_args={"val": "", "rep": None}
+                ),
+            ),
+        ),
         (["Age"], MinMaxScaler()),
         ("Gender", FunctionTransformer()),  # identity
         # ("Blood_Month_sample", LabelBinarizer()),
@@ -420,7 +458,7 @@ def preprocess_dataframe(df: pd.DataFrame) -> pd.DataFrame:
             ),
         ),
     ]
-    allergen_trasforms = [([allergen], StandardScaler()) for allergen in IGES]
+    iges_trasforms = [([ige], StandardScaler()) for ige in IGES]
     target_transforms = [
         (
             [target],
@@ -432,16 +470,17 @@ def preprocess_dataframe(df: pd.DataFrame) -> pd.DataFrame:
         if target in df.columns
     ]
     mapper = DataFrameMapper(
-        general_transforms + allergen_trasforms + target_transforms,
+        general_transforms + iges_trasforms + target_transforms,
         df_out=True,
     )
     df = mapper.fit_transform(df)
 
-    # Global allergen scaling
+    # Global IgE scaling
     # a = df[IGES].to_numpy()
     # nn = ~np.isnan(a)
     # m, s = a.mean(where=nn), a.std(where=nn)
     # df[IGES] = (df[IGES] - m) / (s + 1e-10)
+
     # More specific transforms
     for _, row in df.iterrows():
         # Fix cofactors https://app.trustii.io/datasets/1439/forums/46/messages
@@ -451,4 +490,4 @@ def preprocess_dataframe(df: pd.DataFrame) -> pd.DataFrame:
             # -> cofactor 9 should be 0 and cofactor 10 should be 1 instead
             row["General_cofactors_9"], row["General_cofactors_10"] = 0, 1
 
-    return df
+    return df.infer_objects()

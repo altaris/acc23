@@ -18,7 +18,7 @@ from acc23.constants import IMAGE_SIZE, N_CHANNELS, N_FEATURES, N_TRUE_TARGETS
 
 from .base_mlc import BaseMultilabelClassifier
 from .imagetabnet import VisionEncoder
-from .layers import ResNetLinearLayer, concat_tensor_dict, linear_chain
+from .layers import concat_tensor_dict, linear_chain
 
 
 class Gordon(BaseMultilabelClassifier):
