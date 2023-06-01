@@ -198,7 +198,9 @@ def output_to_dataframe(y: Tensor) -> pd.DataFrame:
         .sum(axis=1)
         .clip(0, 1)
     )
-    return df.astype(int)
+    df["Type_of_Food_Allergy_Other"] = 0
+    df["Type_of_Food_Allergy_Cereals_&_Seeds"] = 0
+    return df[TARGETS].astype(int)
 
 
 def submit_to_trustii(
