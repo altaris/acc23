@@ -507,6 +507,7 @@ TARGETS = [
     "Type_of_Venom_Allergy_IGE_Venom",
 ]
 
+
 TRUE_TARGETS = [
     # "Allergy_Present",  # Can be calculated directly from other targets
     "Severe_Allergy",
@@ -523,8 +524,8 @@ TRUE_TARGETS = [
     "Type_of_Respiratory_Allergy_IGE_Mite_Cockroach",
     "Type_of_Respiratory_Allergy_IGE_Molds_Yeast",
     "Type_of_Food_Allergy_Aromatics",
-    "Type_of_Food_Allergy_Other",
-    "Type_of_Food_Allergy_Cereals_&_Seeds",
+    # "Type_of_Food_Allergy_Other",  # Unrepresented
+    # "Type_of_Food_Allergy_Cereals_&_Seeds",  # Unrepresented
     "Type_of_Food_Allergy_Egg",
     "Type_of_Food_Allergy_Fish",
     "Type_of_Food_Allergy_Fruits_and_Vegetables",
@@ -551,8 +552,6 @@ TRUE_TARGETS_COUNT = [
     720,
     355,
     37,
-    0,
-    0,
     47,
     52,
     105,
@@ -591,8 +590,6 @@ TRUE_TARGETS_PREVALENCE = [
     0.24088324,
     0.11876882,
     0.01237872,
-    0.0,
-    0.0,
     0.01572432,
     0.01739712,
     0.03512881,
