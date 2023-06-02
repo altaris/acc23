@@ -163,7 +163,7 @@ class VisionEncoder(nn.Module):
                 each convolution stage
             n_decision_steps (int): Number of decision steps
             activation (str): Defaults to silu
-            attention_after_last (bool): Wether to add an attention module
+            attention_after_last (bool): Whether to add an attention module
                 after the last residual block, defaults to `False`.
         """
         super().__init__()
