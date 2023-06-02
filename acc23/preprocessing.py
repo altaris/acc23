@@ -205,7 +205,7 @@ def load_csv(
 
     Args:
         path (Union[str, Path]): Path of the csv file.
-        preprocess (bool): Wether the dataframe should go through
+        preprocess (bool): Whether the dataframe should go through
             `acc23.preprocessing.preprocess_dataframe`.
         impute (bool): Whether the dataframe should be imputed (see
             `acc23.preprocessing.impute_dataframe`). Note that imputation is
