@@ -72,7 +72,7 @@ class BaseMultilabelClassifier(pl.LightningModule):
             # nn.functional.binary_cross_entropy_with_logits(
             #     y_pred,
             #     y_true,
-            #     weight=prevalence.max() / (prevalence + 1e-5),
+            #     # weight=prevalence.max() / (prevalence + 1e-5),
             #     # weight=(1 - beta) / (1 - beta**count + 1e-5),
             # )
             # class_balanced_focal_loss_with_logits(y_pred, y_true, count)
@@ -98,12 +98,6 @@ class BaseMultilabelClassifier(pl.LightningModule):
             prec = precision_score(**kw)
             rec = recall_score(**kw)
             f1 = f1_score(**kw)
-            f1_min = f1_score(
-                y_true=y_true_np,
-                y_pred=y_pred_np,
-                zero_division=0,
-                average=None,
-            ).min()
             self.log_dict(
                 {
                     f"{stage}/loss": loss,
@@ -116,7 +110,6 @@ class BaseMultilabelClassifier(pl.LightningModule):
                 {
                     f"{stage}/acc": acc,
                     f"{stage}/extra": extra_loss,
-                    f"{stage}/f1_min": f1_min,
                     f"{stage}/ham": ham,
                     f"{stage}/prec": prec,
                     f"{stage}/rec": rec,

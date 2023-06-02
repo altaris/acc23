@@ -17,8 +17,24 @@ from rich.progress import track
 from sklearn.neighbors import NearestNeighbors
 
 
+def _irlbl(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    IRLbl imbalance score.
+
+    Args:
+        df (DataFrame): Target / labels dataframe
+
+    Warning:
+        All targets are expected to be represented at least once. In other
+        words, every target should have a strictly positive prevalence.
+    """
+    s = df.sum(axis=0)
+    s = s.max() / (s + 1e-5)
+    return s
+
+
 def _mlsmote(
-    df: pd.DataFrame, targets: List[str], n_neighbors: int = 5
+    df: pd.DataFrame, targets: List[str], n_neighbors: int = 10
 ) -> pd.DataFrame:
     """
     One round MLSMOTE oversampling.
@@ -35,6 +51,7 @@ def _mlsmote(
         min_bag, synth_smpls = df.loc[df[tgt] == 1], []
         knn = NearestNeighbors(n_neighbors=n_neighbors)
         knn.fit(min_bag.to_numpy())
+        # for i in np.random.choice(len(min_bag), len(min_bag)):
         for i in range(len(min_bag)):
             sample = min_bag.iloc[i]
             idx = knn.kneighbors([sample], return_distance=False)[0]
@@ -44,22 +61,6 @@ def _mlsmote(
             synth_smpls.append(synth_smpl)
         df = pd.concat([df, pd.DataFrame(synth_smpls)], ignore_index=True)
     return df
-
-
-def _irlbl(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    IRLbl imbalance score.
-
-    Args:
-        df (DataFrame): Target / labels dataframe
-
-    Warning:
-        All targets are expected to be represented at least once. In other
-        words, every target should have a strictly positive prevalence.
-    """
-    s = df.sum(axis=0)
-    s = s.max() / (s + 1e-5)
-    return s
 
 
 def _new_sample(
@@ -85,7 +86,7 @@ def _new_sample(
 def mlsmote(
     df: pd.DataFrame,
     targets: List[str],
-    n_neighbors: int = 5,
+    n_neighbors: int = 10,
     n_rounds: int = 1,
 ) -> pd.DataFrame:
     """

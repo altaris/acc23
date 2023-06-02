@@ -30,19 +30,14 @@ from acc23.preprocessing import load_csv
 
 def evaluate_on_dataset(
     model: nn.Module,
-    csv_file_path: Union[str, Path],
+    data: Union[str, Path, pd.DataFrame],
     image_dir_path: Union[str, Path],
     image_transform: Optional[Transform_t] = None,
     load_csv_kwargs: Optional[dict] = None,
     batch_size: int = 32,
 ) -> pd.DataFrame:
     """Simply evaluates a model on a dataset"""
-    ds = ACCDataset(
-        csv_file_path,
-        image_dir_path,
-        image_transform,
-        load_csv_kwargs,
-    )
+    ds = ACCDataset(data, image_dir_path, image_transform, load_csv_kwargs)
     dl = DataLoader(ds, batch_size=batch_size)
     with torch.no_grad():
         y = []
