@@ -156,8 +156,8 @@ def impute_dataframe(df: pd.DataFrame) -> pd.DataFrame:
     ]
     # Some targets have NaNs, which is absurd. Fortunately, most true
     # targets don't, except for Severe_Allergy (1323/2989 NaNs, 44.26%)
-    if TARGETS[0] in df.columns:
-        imputers.append((TARGETS, SimpleImputer(strategy="most_frequent")))
+    # if TARGETS[0] in df.columns:
+    #     imputers.append((TARGETS, SimpleImputer(strategy="most_frequent")))
     impute_columns: List[str] = []
     for i in imputers:
         c: Union[str, List[str]] = i[0]
@@ -329,11 +329,18 @@ def pmf_impute(
     return x_true.numpy()
 
 
-def preprocess_dataframe(df: pd.DataFrame) -> pd.DataFrame:
+def preprocess_dataframe(
+    df: pd.DataFrame, drop_nan_targets: bool = True
+) -> pd.DataFrame:
     """
     Applies all manners of preprocessing transformers to the dataframe.
 
-    TODO: List all of them.
+    Args:
+        df (DataFrame):
+        drop_nan_targets (bool): Drop the rows where at least one true target
+            is NaN or 9.
+
+    TODO: List all transformers
     """
     logging.debug("Preprocessing dataframe")
 
@@ -490,4 +497,64 @@ def preprocess_dataframe(df: pd.DataFrame) -> pd.DataFrame:
             # -> cofactor 9 should be 0 and cofactor 10 should be 1 instead
             row["General_cofactors_9"], row["General_cofactors_10"] = 0, 1
 
+    if drop_nan_targets:  # Drop rows with at least one NaN true target
+        if all(t in df.columns for t in TRUE_TARGETS):
+            no_nan_tgt = df[TRUE_TARGETS].notna().prod(axis=1) == 1
+            df = df[no_nan_tgt].reset_index()
+        else:
+            logging.warning(
+                "drop_nan_targets set to True, but dataframe does not have "
+                "all true targets."
+            )
+
     return df.infer_objects()
+
+
+def set_fake_targets(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Calculate the 'fake' targets from the true targets. The true target columns
+    cannot have nans.
+    """
+
+    df["Allergy_Present"] = df.sum(axis=1)
+    df["Respiratory_Allergy"] = df.get("Respiratory_Allergy", 0) + df[
+        [
+            "Type_of_Respiratory_Allergy_ARIA",
+            "Type_of_Respiratory_Allergy_CONJ",
+            "Type_of_Respiratory_Allergy_GINA",
+            "Type_of_Respiratory_Allergy_IGE_Pollen_Gram",
+            "Type_of_Respiratory_Allergy_IGE_Pollen_Herb",
+            "Type_of_Respiratory_Allergy_IGE_Pollen_Tree",
+            "Type_of_Respiratory_Allergy_IGE_Dander_Animals",
+            "Type_of_Respiratory_Allergy_IGE_Mite_Cockroach",
+            "Type_of_Respiratory_Allergy_IGE_Molds_Yeast",
+        ]
+    ].sum(axis=1).clip(0, 1)
+    df["Food_Allergy"] = df.get("Food_Allergy", 0) + df[
+        [
+            "Type_of_Food_Allergy_Aromatics",
+            "Type_of_Food_Allergy_Other",
+            "Type_of_Food_Allergy_Cereals_&_Seeds",
+            "Type_of_Food_Allergy_Egg",
+            "Type_of_Food_Allergy_Fish",
+            "Type_of_Food_Allergy_Fruits_and_Vegetables",
+            "Type_of_Food_Allergy_Mammalian_Milk",
+            "Type_of_Food_Allergy_Oral_Syndrom",
+            "Type_of_Food_Allergy_Other_Legumes",
+            "Type_of_Food_Allergy_Peanut",
+            "Type_of_Food_Allergy_Shellfish",
+            "Type_of_Food_Allergy_TPO",
+            "Type_of_Food_Allergy_Tree_Nuts",
+        ]
+    ].sum(axis=1).clip(0, 1)
+    df["Venom_Allergy"] = df.get("Venom_Allergy", 0) + df[
+        [
+            "Type_of_Venom_Allergy_ATCD_Venom",
+            "Type_of_Venom_Allergy_IGE_Venom",
+        ]
+    ].sum(axis=1).clip(0, 1)
+    df["Type_of_Food_Allergy_Other"] = df.get("Type_of_Food_Allergy_Other", 0)
+    df["Type_of_Food_Allergy_Cereals_&_Seeds"] = df.get(
+        "Type_of_Food_Allergy_Cereals_&_Seeds", 0
+    )
+    return df[TARGETS]  # Column order
