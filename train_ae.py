@@ -3,17 +3,36 @@
 
 from loguru import logger as logging
 
-from acc23.autoencoders import AE
+from acc23.autoencoders import AE, GenerateCallback
 from acc23.utils import train_model
 from acc23.dataset import ImageFolderDataset
 
 
 def main():
     ds = ImageFolderDataset("data/images")
-    train, val = ds.test_train_split_dl()
+    train, val = ds.train_test_split_dl(
+        ratio=0.9,
+        # dataloader_kwargs={
+        #     "batch_size": 256,
+        #     "pin_memory": True,
+        #     "num_workers": 32,
+        # },
+    )
     model = AE()
-    name = model.__class__.__name__.lower()
-    train_model(model, train, val, root_dir="out", name=name)
+    train_model(
+        model,
+        train,
+        val,
+        root_dir="out",
+        name=model.__class__.__name__.lower(),
+        additional_callbacks=[GenerateCallback(ds.sample(4))],
+        early_stopping_kwargs={
+            "check_finite": True,
+            "mode": "min",
+            "monitor": "val/loss",
+            "patience": 20,
+        },
+    )
 
 
 if __name__ == "__main__":
