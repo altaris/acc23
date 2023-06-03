@@ -541,36 +541,38 @@ TRUE_TARGETS = [
 ]
 
 TRUE_TARGETS_COUNT = [
-    1032,
-    789,
-    401,
-    746,
-    738,
-    515,
-    713,
-    680,
-    720,
-    355,
+    938,
+    744,
+    373,
+    693,
+    629,
+    418,
+    619,
+    584,
+    596,
+    302,
+    34,
+    42,
+    38,
+    95,
+    25,
+    86,
+    49,
+    108,
     37,
-    47,
-    52,
-    105,
-    26,
-    106,
-    57,
-    122,
-    45,
     46,
-    162,
-    23,
-    19,
+    142,
+    13,
+    17,
 ]
 """
 Ratio of rows that have positive targets
 
     import pandas as pd
     from acc23.constants import TRUE_TARGETS
-    df = pd.read_csv("data/train.pre.csv")[TRUE_TARGETS]
+    from acc23.preprocessing import load_csv
+    df = load_csv("data/train.csv", impute=False)
+    df = df[TRUE_TARGETS]
     df = df.where(df.notna(), 0)
     t = df.to_numpy()
     t.sum(axis=0)
@@ -579,36 +581,38 @@ TODO: Don't hardcode this :/
 """
 
 TRUE_TARGETS_PREVALENCE = [
-    0.34526598,
-    0.26396788,
-    0.13415858,
-    0.2495818,
-    0.24690532,
-    0.17229843,
-    0.23854132,
-    0.22750084,
-    0.24088324,
-    0.11876882,
-    0.01237872,
-    0.01572432,
-    0.01739712,
-    0.03512881,
-    0.00869856,
-    0.03546337,
-    0.01906992,
-    0.04081633,
-    0.0150552,
-    0.01538976,
-    0.05419873,
-    0.00769488,
-    0.00635664,
+    0.6917404,
+    0.54867256,
+    0.27507374,
+    0.51106197,
+    0.4638643,
+    0.30825958,
+    0.45648968,
+    0.43067846,
+    0.43952802,
+    0.22271386,
+    0.02507375,
+    0.03097345,
+    0.0280236,
+    0.07005899,
+    0.01843658,
+    0.06342183,
+    0.03613569,
+    0.07964602,
+    0.02728614,
+    0.03392331,
+    0.10471977,
+    0.00958702,
+    0.01253687,
 ]
 """
 Ratio of rows that have positive targets
 
     import pandas as pd
     from acc23.constants import TRUE_TARGETS
-    df = pd.read_csv("data/train.pre.csv")[TRUE_TARGETS]
+    from acc23.preprocessing import load_csv
+    df = load_csv("data/train.csv", impute=False)
+    df = df[TRUE_TARGETS]
     df = df.where(df.notna(), 0)
     t = df.to_numpy()
     t.sum(axis=0) / len(t)
@@ -635,7 +639,7 @@ Number of image channels after preprocessing, see `preprocessing.load_image`.
 Even if this is 1, images will still be presented as `(C, H, W)` arrays.
 """
 
-N_FEATURES = 474
+N_FEATURES = 475
 """
 Number of feature columns AFTER preprocessing, see
 `preprocessing.preprocess_dataframe`, and not counting the `Chip_Image_Name`
