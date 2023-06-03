@@ -24,6 +24,7 @@ from torchvision.transforms.functional import pad, resize
 
 from acc23.constants import (
     CLASSES,
+    FEATURES,
     IGES,
     IMAGE_SIZE,
     N_CHANNELS,
@@ -48,12 +49,42 @@ class MultiLabelSplitBinarizer(TransformerMixin):
 
     _multilabel_binarizer: MultiLabelBinarizer
     _split_delimiters: str
+    _last_class_is_nan: bool
 
     def __init__(
-        self, classes: Optional[list] = None, split_delimiters: str = ","
+        self,
+        classes: Optional[list] = None,
+        split_delimiters: str = ",",
+        last_class_is_nan: bool = False,
     ):
+        """
+        Args:
+            classes (Optional[list]): Leave to `None` to automatically infer
+                the classes
+            split_delimiters (str): Splitting delimiters, defaults to only `,`
+                (so that it deals with comma-separated lists)
+            last_class_is_nan (bool): If set to `True`, then the last class
+                will treated as the "unknown" class. Here's an example:
+
+                >>> x = ["a,b,c", "a,b", "d", "a,d"]
+                >>> f = MultiLabelSplitBinarizer(classes=["a", "b", "c", "d"])
+                >>> f.fit_transform(x)
+                array([[1, 1, 1, 0],
+                       [1, 1, 0, 0],
+                       [0, 0, 0, 1],
+                       [1, 0, 0, 1]])
+                >>> g = MultiLabelSplitBinarizer(classes=["a", "b", "c", "d"], last_class_is_nan=True)
+                >>> g.fit_transform(x)
+                array([[ 1.,  1.,  1.],
+                       [ 1.,  1.,  0.],
+                       [nan, nan, nan],
+                       [nan, nan, nan]])
+
+                Note that `g.fit_transform(x)` only has 3 columns.
+        """
         self._multilabel_binarizer = MultiLabelBinarizer(classes=classes)
         self._split_delimiters = split_delimiters
+        self._last_class_is_nan = last_class_is_nan
 
     @property
     def classes_(self) -> Iterable[str]:
@@ -75,7 +106,15 @@ class MultiLabelSplitBinarizer(TransformerMixin):
         `MultiLabelBinarizer`.
         """
         s = map_split(x, self._split_delimiters)
-        return self._multilabel_binarizer.transform(s)
+        y = self._multilabel_binarizer.transform(s)
+        if self._last_class_is_nan:
+            b = y[:, -1] == 1  # Whether row has last class
+            b = np.stack([b] * len(list(self.classes_)), axis=-1)
+            # b now has the same shape as y, and b[i,j] is True iff x[i] has
+            # the last class, i.e. y[i,-1] == 1
+            y = np.where(b, np.NaN, y)
+            y = y[:, :-1]  # Drop last column
+        return y
 
 
 def get_dtypes() -> dict:
@@ -156,6 +195,11 @@ def impute_dataframe(df: pd.DataFrame) -> pd.DataFrame:
     imputers = [
         (["Age"], SimpleImputer()),
         (["Gender"], SimpleImputer(strategy="most_frequent")),
+        # Columns with NaN classes, aka "unknown" classes, aka 9.
+        # (
+        #     None,
+        #     KNNImputer(),
+        # ),
         (IGES, KNNImputer()),
     ]
     # Some targets have NaNs, which is absurd. Fortunately, most true
@@ -191,7 +235,8 @@ def impute_dataframe(df: pd.DataFrame) -> pd.DataFrame:
     mapper = DataFrameMapper(imputers + dummy_imputers)
     x = mapper.fit_transform(df)
     df = pd.DataFrame(data=x, columns=impute_columns + non_impute_columns)
-    return df.infer_objects()
+    df = df.infer_objects()
+    return reorder_columns(df)
 
 
 def load_csv(
@@ -237,7 +282,7 @@ def load_csv(
         df = mlsmote(df, TRUE_TARGETS, n_rounds=n_oversample_rounds)
     else:
         logging.debug("Skipped oversampling")
-    return df
+    return reorder_columns(df)
 
 
 def load_image(path: Union[str, Path]) -> torch.Tensor:
@@ -334,7 +379,8 @@ def pmf_impute(
 
 
 def preprocess_dataframe(
-    df: pd.DataFrame, drop_nan_targets: bool = True
+    df: pd.DataFrame,
+    drop_nan_targets: bool = True,
 ) -> pd.DataFrame:
     """
     Applies all manners of preprocessing transformers to the dataframe.
@@ -368,7 +414,7 @@ def preprocess_dataframe(
                 ),
             ),
         ),
-        (["Age"], MinMaxScaler()),
+        (["Age"], MinMaxScaler(feature_range=(0, 150))),
         ("Gender", FunctionTransformer()),  # identity
         # ("Blood_Month_sample", LabelBinarizer()),
         (
@@ -381,14 +427,17 @@ def preprocess_dataframe(
             ["French_Region"],
             MultiLabelBinarizer(classes=CLASSES["French_Region"]),
         ),
-        ("Rural_or_urban_area", FunctionTransformer()),  # identity
+        (
+            "Rural_or_urban_area",
+            FunctionTransformer(
+                # map_replace, kw_args={"val": 9, "rep": np.NaN}
+            ),
+        ),
         ("Sensitization", FunctionTransformer()),  # identity
         (
             "Food_Type_0",
             MultiLabelSplitBinarizer(classes=CLASSES["Food_Type_0"]),
         ),
-        # In the spec but not in the csv files
-        # ("Food_Type_2", MultiLabelSplitBinarizer()),
         (
             "Treatment_of_rhinitis",
             make_transformer_pipeline(
@@ -408,14 +457,12 @@ def preprocess_dataframe(
                     map_replace, kw_args={"val": "4.0", "rep": "4"}
                 ),
                 FunctionTransformer(
-                    map_replace, kw_args={"val": "5.0", "rep": "5"}
-                ),
-                FunctionTransformer(
                     map_replace, kw_args={"val": "9.0", "rep": "9"}
                 ),
                 MultiLabelSplitBinarizer(
                     classes=CLASSES["Treatment_of_rhinitis"],
                     split_delimiters=",. ",
+                    # last_class_is_nan=True,
                 ),
             ),
         ),
@@ -428,6 +475,7 @@ def preprocess_dataframe(
                 MultiLabelSplitBinarizer(
                     classes=CLASSES["Treatment_of_athsma"],
                     split_delimiters=",. ",
+                    # last_class_is_nan=True,
                 ),
             ),
         ),
@@ -442,7 +490,10 @@ def preprocess_dataframe(
         ),
         (
             "Skin_Symptoms",
-            MultiLabelSplitBinarizer(classes=CLASSES["Skin_Symptoms"]),
+            MultiLabelSplitBinarizer(
+                classes=CLASSES["Skin_Symptoms"],
+                # last_class_is_nan=True,
+            ),
         ),
         (
             "General_cofactors",
@@ -453,6 +504,7 @@ def preprocess_dataframe(
                 MultiLabelSplitBinarizer(
                     classes=CLASSES["General_cofactors"],
                     split_delimiters=",. ",
+                    # last_class_is_nan=True,
                 ),
             ),
         ),
@@ -465,6 +517,7 @@ def preprocess_dataframe(
                 MultiLabelSplitBinarizer(
                     classes=CLASSES["Treatment_of_atopic_dematitis"],
                     split_delimiters=",. ",
+                    # last_class_is_nan=True,
                 ),
             ),
         ),
@@ -474,7 +527,7 @@ def preprocess_dataframe(
         (
             [target],
             FunctionTransformer(
-                map_replace, kw_args={"val": 9, "rep": np.nan}
+                map_replace, kw_args={"val": 9, "rep": np.NaN}
             ),
         )
         for target in TARGETS
@@ -486,32 +539,39 @@ def preprocess_dataframe(
     )
     df = mapper.fit_transform(df)
 
-    # Global IgE scaling
-    # a = df[IGES].to_numpy()
-    # nn = ~np.isnan(a)
-    # m, s = a.mean(where=nn), a.std(where=nn)
-    # df[IGES] = (df[IGES] - m) / (s + 1e-10)
-
-    # More specific transforms
-    for _, row in df.iterrows():
-        # Fix cofactors https://app.trustii.io/datasets/1439/forums/46/messages
-        cofactors = [row[f"General_cofactors_{i}"] for i in range(1, 13)]
-        if sum(cofactors) - cofactors[8] > 0 and cofactors[8] == 1:
-            # Cofactor 9 (unknown) appears in a list of several cofactors
-            # -> cofactor 9 should be 0 and cofactor 10 should be 1 instead
-            row["General_cofactors_9"], row["General_cofactors_10"] = 0, 1
-
-    if drop_nan_targets:  # Drop rows with at least one NaN true target
+    if drop_nan_targets:
         if all(t in df.columns for t in TRUE_TARGETS):
             no_nan_tgt = df[TRUE_TARGETS].notna().prod(axis=1) == 1
-            df = df[no_nan_tgt].reset_index()
+            a, b = no_nan_tgt.sum(), len(df)
+            logging.debug(
+                "Dropping rows with at least one NaN true target "
+                "({} / {} rows)",
+                a,
+                b,
+                round(a / b * 100, 3),
+            )
+            df = df[no_nan_tgt].reset_index(drop=True)
         else:
             logging.warning(
                 "drop_nan_targets set to True, but dataframe does not have "
-                "all true targets."
+                "all true target columns. Skipping drops"
             )
 
-    return df.infer_objects()
+    df = df.infer_objects()
+    return reorder_columns(df)
+
+
+def reorder_columns(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Reorders the columns of the dataframe to `FEATURES + TARGETS`, where
+    `FEATURES` and `TARGETS` are defined in `acc23.constants`. The input
+    dataframe is allowed to have missing columns.
+
+    The goal of this method is to make dataframe's columns order predictable,
+    which is important because models may convert input dataframes to arrays
+    (essentially removing the columns names).
+    """
+    return df[[c for c in FEATURES + TARGETS if c in df.columns]]
 
 
 def set_fake_targets(df: pd.DataFrame) -> pd.DataFrame:
@@ -520,7 +580,13 @@ def set_fake_targets(df: pd.DataFrame) -> pd.DataFrame:
     cannot have nans.
     """
 
-    df["Allergy_Present"] = df.sum(axis=1)
+    # Some targets have 0 prevalence lôl
+    for c in [
+        "Type_of_Food_Allergy_Other",
+        "Type_of_Food_Allergy_Cereals_&_Seeds",
+    ]:
+        df[c] = df.get(c, 0)
+    df["Allergy_Present"] = df.sum(axis=1).clip(0, 1)
     df["Respiratory_Allergy"] = df.get("Respiratory_Allergy", 0) + df[
         [
             "Type_of_Respiratory_Allergy_ARIA",
@@ -557,8 +623,4 @@ def set_fake_targets(df: pd.DataFrame) -> pd.DataFrame:
             "Type_of_Venom_Allergy_IGE_Venom",
         ]
     ].sum(axis=1).clip(0, 1)
-    df["Type_of_Food_Allergy_Other"] = df.get("Type_of_Food_Allergy_Other", 0)
-    df["Type_of_Food_Allergy_Cereals_&_Seeds"] = df.get(
-        "Type_of_Food_Allergy_Cereals_&_Seeds", 0
-    )
-    return df[TARGETS]  # Column order
+    return reorder_columns(df)

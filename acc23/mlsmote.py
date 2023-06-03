@@ -42,12 +42,13 @@ def _mlsmote(
     Warning:
         Assumes that the whole dataframe is numerical and has no `NaN`s.
     """
+    logging.debug("MLSMOTE oversampling with {} neighbors", n_neighbors)
     mir = _irlbl(df[targets]).mean()
     for tgt in targets:
         ir = _irlbl(df[targets])  # Must be done at every iter.
         if ir[tgt] <= mir:
             continue
-        # logging.debug("Minority target '{}'", tgt)
+        logging.debug("Minority target '{}'", tgt)
         min_bag, synth_smpls = df.loc[df[tgt] == 1], []
         knn = NearestNeighbors(n_neighbors=n_neighbors)
         knn.fit(min_bag.to_numpy())
@@ -106,7 +107,7 @@ def mlsmote(
             obj_columns,
         )
         df, df_objs = df.drop(columns=obj_columns), df[obj_columns]
-    for _ in track(range(n_rounds), "MLSMOTE oversampling..."):
+    for _ in range(n_rounds):
         df = _mlsmote(df, targets, n_neighbors)
     if obj_columns:
         df_objs = pd.concat(

@@ -4,7 +4,6 @@ model to a submittable csv file
 """
 __docformat__ = "google"
 
-from collections import OrderedDict
 import json
 from pathlib import Path
 from typing import Optional, Tuple, Union
@@ -25,7 +24,7 @@ from torch.utils.data import DataLoader
 
 from acc23.constants import TARGETS, TRUE_TARGETS
 from acc23.dataset import ACCDataset, Transform_t
-from acc23.preprocessing import load_csv, set_fake_targets
+from acc23.preprocessing import load_csv, reorder_columns, set_fake_targets
 
 
 def evaluate_on_dataset(
@@ -71,8 +70,8 @@ def evaluate_on_test_dataset(
         batch_size,
     )
     raw = pd.read_csv(csv_file_path)
-    raw[TARGETS] = df[TARGETS]
-    return raw
+    df["trustii_id"] = raw["trustii_id"]
+    return df
 
 
 def evaluate_on_train_dataset(
@@ -140,12 +139,9 @@ def output_to_dataframe(y: Tensor) -> pd.DataFrame:
     """
     arr = y.cpu().detach().numpy()
     arr = (arr > 0).astype(int)
-    data = OrderedDict.fromkeys(TARGETS)
-    for i, t in enumerate(TRUE_TARGETS):
-        data[t] = arr[:, i]
-    df = pd.DataFrame(data=data)
+    df = pd.DataFrame(data=arr, columns=TRUE_TARGETS)
     df = set_fake_targets(df)
-    return df[TARGETS].astype(int)
+    return reorder_columns(df).astype(int)
 
 
 def submit_to_trustii(
