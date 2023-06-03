@@ -8,7 +8,7 @@ import numpy as np
 import pandas as pd
 import torch
 from loguru import logger as logging
-from PIL import Image
+from PIL import Image, ImageFile
 from rich.progress import track
 from sklearn.base import TransformerMixin
 from sklearn.impute import KNNImputer, SimpleImputer
@@ -31,6 +31,10 @@ from acc23.constants import (
     TRUE_TARGETS,
 )
 from acc23.mlsmote import mlsmote
+
+ImageFile.LOAD_TRUNCATED_IMAGES = True
+# Some images are buggy yay:
+# CY60527_4_190006236104_2022_12_22_12_11_20.bmp
 
 
 class MultiLabelSplitBinarizer(TransformerMixin):

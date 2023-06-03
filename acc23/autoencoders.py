@@ -1,28 +1,59 @@
 """Variational autoencoder"""
 __docformat__ = "google"
 
-from typing import Any, Optional, Tuple
+from typing import Any, List, Optional, Tuple
 
 import pytorch_lightning as pl
 import torch
+import torchvision
 from diffusers.models.vae import DiagonalGaussianDistribution
 from torch import Tensor, nn
+from transformers.models.resnet.modeling_resnet import ResNetBasicLayer
 
 from acc23.constants import IMAGE_SIZE, N_CHANNELS
-from acc23.models.layers import (
-    ResNetEncoderLayer,
-    resnet_decoder,
-    resnet_encoder,
-)
+
+
+class GenerateCallback(pl.Callback):
+    """
+    A callback to reconstruct images and log them to tensorboard during
+    training.
+    """
+
+    every_n_epochs: int
+    imgs: Tensor
+
+    def __init__(self, imgs: Tensor, every_n_epochs: int = 10):
+        """
+        Args:
+            imgs (Tensor): Batch of images to reconstruct during training
+            every_n_epochs (int):
+        """
+        super().__init__()
+        self.imgs = imgs.cpu()
+        self.every_n_epochs = every_n_epochs
+
+    def on_train_epoch_end(
+        self, trainer: pl.Trainer, pl_module: pl.LightningModule
+    ):
+        if trainer.current_epoch % self.every_n_epochs == 0:
+            with torch.no_grad():
+                rimgs = pl_module(self.imgs).detach().cpu()
+            imgs = torch.stack([self.imgs, rimgs], dim=1)
+            imgs = imgs.flatten(0, 1)
+            grid = torchvision.utils.make_grid(imgs, nrow=2)
+            trainer.logger.experiment.add_image(  # type: ignore
+                f"recons/{pl_module.__class__.__name__.lower()}",
+                grid,
+                global_step=trainer.global_step,
+            )
 
 
 class AE(pl.LightningModule):
     """Dataset's image autoencoder for latent representation"""
 
-    decoder: nn.Module
+    decoder_b: nn.Module
     encoder: nn.Module
-
-    _latent_image_shape: Tuple[int, int, int]
+    encoded_size: int
 
     def __init__(
         self,
@@ -32,49 +63,65 @@ class AE(pl.LightningModule):
             IMAGE_SIZE,
         ),
         latent_dim: int = 256,
-        n_blocks: int = 1,
     ) -> None:
         # TODO: assert that the input shape is square
         super().__init__()
         self.save_hyperparameters()
-        self.encoder, _ = resnet_encoder(
-            in_channels=input_shape[0],
-            out_channels=[
-                8,  # IMAGE_RESIZE_TO = 512 -> 256
-                8,  # -> 128
-                16,  # -> 64
-                16,  # -> 32
-                32,  # -> 16
-                64,  # -> 8
-                128,  # -> 4
-                latent_dim,  # -> 2
-                latent_dim,  # -> 1
-            ],
-            n_blocks=n_blocks,
-            input_size=input_shape[1],
+        bnhc = 8
+        cs = [
+            input_shape[0],
+            bnhc,  # 512 -> 256
+            bnhc,  # -> 128
+            2 * bnhc,  # -> 64
+            2 * bnhc,  # -> 32
+            4 * bnhc,  # -> 16
+            4 * bnhc,  # -> 8
+            # 8 * bnhc,  # -> 4
+            # 8 * bnhc,  # -> 2
+        ]
+        self.encoded_size = input_shape[1] // (2 ** (len(cs) - 1))
+        encoder_layers: List[nn.Module] = []
+        decoder_layers: List[nn.Module] = []
+        for i in range(len(cs) - 1):
+            encoder_layers += [
+                # nn.Conv2d(
+                #     cs[i],
+                #     cs[i + 1],
+                #     kernel_size=3,
+                #     stride=2,
+                #     padding=1,
+                # ),
+                # nn.GELU(),
+                ResNetBasicLayer(cs[i], cs[i + 1], stride=2, activation="gelu")
+            ]
+            decoder_layers = [
+                nn.ConvTranspose2d(
+                    cs[i + 1],
+                    cs[i],
+                    kernel_size=3,
+                    stride=2,
+                    padding=1,
+                    output_padding=1,
+                ),
+                nn.GELU() if i > 0 else nn.Sigmoid(),
+            ] + decoder_layers
+        encoder_layers += [
+            nn.Flatten(),
+            nn.Linear((self.encoded_size**2) * cs[-1], latent_dim),
+        ]
+        self.encoder = nn.Sequential(*encoder_layers)
+        self.decoder_a = nn.Sequential(
+            nn.Linear(latent_dim, (self.encoded_size**2) * cs[-1]),
+            nn.GELU(),
         )
-        self.decoder = resnet_decoder(
-            in_channels=latent_dim,
-            out_channels=[
-                latent_dim,  # 1 -> 2
-                128,  # -> 4
-                64,  # -> 8
-                32,  # -> 16
-                16,  # -> 32
-                16,  # -> 64
-                8,  # -> 128
-                8,  # -> 256
-                input_shape[0],  # -> 512 = IMAGE_RESIZE_TO
-            ],
-            n_blocks=n_blocks,
-        )
+        self.decoder_b = nn.Sequential(*decoder_layers)
         self.example_input_array = torch.zeros((32, *input_shape))
         self.forward(self.example_input_array)
 
     def configure_optimizers(self) -> Any:
         optimizer = torch.optim.Adam(self.parameters(), lr=1e-3)
         scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-            optimizer, mode="min", factor=0.2, patience=20, min_lr=5e-5
+            optimizer, mode="min", factor=0.2, patience=5, min_lr=5e-5
         )
         return {
             "optimizer": optimizer,
@@ -84,11 +131,10 @@ class AE(pl.LightningModule):
 
     def decode(self, z: Tensor) -> Tensor:
         """Decodes a latent vector into an image"""
-        if z.ndim == 2:  # Batch of (flat) vectors
-            latent_dim = self.hparams["latent_dim"]
-            z = z.reshape(-1, latent_dim, 1, 1)
         z = z.to(self.device)  # type: ignore
-        return self.decoder(z)
+        z = self.decoder_a(z)
+        z = z.reshape(z.shape[0], -1, self.encoded_size, self.encoded_size)
+        return self.decoder_b(z)
 
     def encode(self, x: Tensor) -> Tensor:
         """Encodes an image into a (flat) latent vector"""
@@ -138,59 +184,51 @@ class VAE(pl.LightningModule):
             IMAGE_SIZE,
         ),
         latent_dim: int = 256,
-        n_blocks: int = 1,
         beta: float = 1.0,
     ) -> None:
         super().__init__()
         self.save_hyperparameters()
         self.beta = beta
-        self.latent_dim = latent_dim
-        self.encoder = nn.Sequential(
-            nn.MaxPool2d(7, 1, 3),
-            ResNetEncoderLayer(N_CHANNELS, 8),  # IMAGE_RESIZE_TO = 512 -> 256
-            nn.MaxPool2d(7, 1, 3),
-            ResNetEncoderLayer(8, 8),  # -> 128
-            nn.MaxPool2d(7, 1, 3),
-            ResNetEncoderLayer(8, 16),  # -> 64
-            ResNetEncoderLayer(16, 16),  # -> 32
-            ResNetEncoderLayer(16, 32),  # -> 16
-            ResNetEncoderLayer(32, 64),  # -> 8
-            ResNetEncoderLayer(64, 128),  # -> 4
-            ResNetEncoderLayer(128, latent_dim),  # -> 2
-            ResNetEncoderLayer(latent_dim, 2 * latent_dim),  # -> 1
+        bnhc = 8
+        cs = [
+            input_shape[0],
+            bnhc,  # 512 -> 256
+            bnhc,  # -> 128
+            2 * bnhc,  # -> 64
+            2 * bnhc,  # -> 32
+            4 * bnhc,  # -> 16
+            4 * bnhc,  # -> 8
+        ]
+        encoder_layers, decoder_layers = [], []
+        for i in range(len(cs) - 1):
+            encoder_layers += [
+                nn.Conv2d(
+                    cs[i],
+                    cs[i + 1],
+                    kernel_size=3,
+                    stride=2,
+                    padding=1,
+                ),
+                nn.GELU(),
+            ]
+            decoder_layers += [
+                nn.GELU() if i > 0 else nn.Sigmoid(),
+                nn.ConvTranspose2d(
+                    cs[i + 1],
+                    cs[i],
+                    kernel_size=3,
+                    stride=2,
+                    padding=1,
+                    output_padding=1,
+                ),
+            ]
+        encoder_layers += [
             nn.Flatten(),
-        )
-        # self.encoder, _ = resnet_encoder(
-        #     in_channels=input_shape[0],
-        #     out_channels=[
-        #         8,  # IMAGE_RESIZE_TO = 512 -> 256
-        #         8,  # -> 128
-        #         16,  # -> 64
-        #         16,  # -> 32
-        #         32,  # -> 16
-        #         64,  # -> 8
-        #         128,  # -> 4
-        #         latent_dim,  # -> 2
-        #         2 * latent_dim,  # -> 1
-        #     ],
-        #     n_blocks=n_blocks,
-        #     input_size=input_shape[1],
-        # )
-        self.decoder = resnet_decoder(
-            in_channels=latent_dim,
-            out_channels=[
-                latent_dim,  # 1 -> 2
-                128,  # -> 4
-                64,  # -> 8
-                32,  # -> 16
-                16,  # -> 32
-                16,  # -> 64
-                8,  # -> 128
-                8,  # -> 256
-                input_shape[0],  # -> 512 = IMAGE_RESIZE_TO
-            ],
-            n_blocks=n_blocks,
-        )
+            nn.Linear(8 * 8 * 4 * bnhc, 2 * latent_dim),
+        ]
+        decoder_layers = list(reversed(decoder_layers))
+        self.encoder = nn.Sequential(*encoder_layers)
+        self.decoder = nn.Sequential(*decoder_layers)
         self.example_input_array = torch.zeros([32, *input_shape])
         self.forward(self.example_input_array)
 
@@ -209,8 +247,7 @@ class VAE(pl.LightningModule):
     def decode(self, z: torch.Tensor) -> torch.Tensor:
         """Decodes a set of points in the latent space."""
         if z.ndim == 2:  # Batch of (flat) vectors
-            latent_dim = self.hparams["latent_dim"]
-            z = z.reshape(-1, latent_dim, 1, 1)
+            z = z.reshape(z.shape[0], -1, 1, 1)
         z = z.to(self.device)  # type: ignore
         return self.decoder(z)
 

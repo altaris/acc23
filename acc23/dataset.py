@@ -7,17 +7,14 @@ from glob import glob
 from pathlib import Path
 from typing import Callable, List, Optional, Tuple, Union
 
+import numpy as np
 import pandas as pd
 import torch
 from loguru import logger as logging
+from torch import Tensor
 from torch.utils.data import DataLoader, Dataset
 
-from acc23.constants import (
-    IMAGE_SIZE,
-    N_CHANNELS,
-    TARGETS,
-    TRUE_TARGETS,
-)
+from acc23.constants import IMAGE_SIZE, N_CHANNELS, TARGETS, TRUE_TARGETS
 from acc23.mlsmote import mlsmote
 from acc23.preprocessing import load_csv, load_image
 
@@ -198,6 +195,10 @@ class ImageFolderDataset(Dataset):
         img = self.image_transform(img)
         return img
 
+    def sample(self, n: int = 8) -> Tensor:
+        """Samples `n` images and returns them in a batch"""
+        return torch.stack([self[i] for i in np.random.choice(len(self), n)])
+
     def train_test_split_dl(
         self,
         ratio: float = 0.8,
@@ -205,20 +206,20 @@ class ImageFolderDataset(Dataset):
         dataloader_kwargs: Optional[dict] = None,
     ) -> Tuple[DataLoader, DataLoader]:
         """
-        Performs a train/test split using
+        Performs a random train/test split split using
         [`torch.utils.data.random_split`](https://pytorch.org/docs/stable/data.html#torch.utils.data.random_split)
-        with the train dataset being roughly `ratio %` of the size of the
-        dataset. Returns two `DataLoader`s. The default dataloader parameters
-        are
+        with the train dataset being roughly `ratio` of the size of the
+        dataset. Returns two `DataLoader`s.
 
-            {
-                "batch_size": 128,
-                "pin_memory": True,
-                "num_workers": 16,
-            }
-
-        If `ratio = 1`, then the while dataset is returned twice (into 2
-        different dataloaders).
+        Args:
+            ratio (float): A number in $(0, 1]$. If $1$, then the current
+                dataset is returned twice (into 2 different dataloaders).
+            dataloader_kwargs (Optional[dict]): Defaults to
+                {
+                    "batch_size": 128,
+                    "pin_memory": True,
+                    "num_workers": 16,
+                }
         """
         split_kwargs = split_kwargs or {}
         kw = dataloader_kwargs or {
