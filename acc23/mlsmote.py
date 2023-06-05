@@ -13,7 +13,6 @@ from typing import List
 import numpy as np
 import pandas as pd
 from loguru import logger as logging
-from rich.progress import track
 from sklearn.neighbors import NearestNeighbors
 
 
@@ -43,6 +42,7 @@ def _mlsmote(
         Assumes that the whole dataframe is numerical and has no `NaN`s.
     """
     logging.debug("MLSMOTE oversampling with {} neighbors", n_neighbors)
+    columns, dtypes = df.columns, dict(df.dtypes)
     mir = _irlbl(df[targets]).mean()
     for tgt in targets:
         ir = _irlbl(df[targets])  # Must be done at every iter.
@@ -61,6 +61,8 @@ def _mlsmote(
             synth_smpl = _new_sample(sample, ref_neigh, neighbors, targets)
             synth_smpls.append(synth_smpl)
         df = pd.concat([df, pd.DataFrame(synth_smpls)], ignore_index=True)
+    df = df[columns]  # Restore column order
+    df = df.astype(dtypes)  # Restore dtypes
     return df
 
 
@@ -98,7 +100,6 @@ def mlsmote(
     Warning:
         Numerical columns must not contain `NaN`s
     """
-    columns = df.columns
     obj_columns = [c for c, d in df.dtypes.items() if str(d) == "object"]
     if obj_columns:
         logging.debug(
@@ -121,4 +122,4 @@ def mlsmote(
             ignore_index=True,
         )
         df = pd.concat([df, df_objs], axis=1)
-    return df[columns]
+    return df

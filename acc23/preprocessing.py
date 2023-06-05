@@ -2,7 +2,7 @@
 
 import re
 from pathlib import Path
-from typing import Any, Iterable, List, Optional, Union
+from typing import Any, Dict, Iterable, List, Optional, Union
 
 import numpy as np
 import pandas as pd
@@ -117,32 +117,47 @@ class MultiLabelSplitBinarizer(TransformerMixin):
         return y
 
 
-def get_dtypes() -> dict:
-    """Gets the types the columns of `train.csv` and `test.csv` should have."""
+def get_dtypes(with_nans: bool = False) -> Dict[str, Any]:
+    """
+    Gets the types the columns of `train.csv` and `test.csv` should have. If
+    `with_nans` is `True`, categorical columns that can have NaNs (either
+    accodrind to the spec or in practice) are set to `float` dtype instead of
+    `int`.
+    """
     a = {
         "Patient_ID": str,
         "Chip_Code": str,
         "Chip_Type": str,
         "Chip_Image_Name": str,
-        "Age": np.float32,  # spec says it can be nan
-        "Gender": np.float32,  # has nan in practice
-        "Blood_Month_sample": np.float32,  # spec says it can be nan
+        "Age": int,
+        "Gender": int,
+        "Blood_Month_sample": int,
         "French_Residence_Department": str,
         "French_Region": str,
-        "Rural_or_urban_area": np.float32,  # spec says it can be nan
-        "Sensitization": np.int64,
+        "Rural_or_urban_area": int,
+        "Sensitization": int,
         "Food_Type_0": str,
-        "Food_Type_2": str,  # In the spec but not in the csv files?
+        "Food_Type_2": str,
         "Treatment_of_rhinitis": str,  # Comma-sep lst of codes
         "Treatment_of_athsma": str,  # Comma-sep lst of codes
         "Age_of_onsets": str,  # Comma-sep lst of age codes
         "Skin_Symptoms": str,  # Will be categorized
         "General_cofactors": str,  # Comma-sep lst of codes
-        "Treatment_of_atopic_dematitis": str,  # Comma-sep lst of treatment codes
+        "Treatment_of_atopic_dematitis": str,  # Comma-sep lst of codes
     }
-    b = {ige: np.float32 for ige in IGES}
-    c = {target: np.float32 for target in TARGETS}  # Some targets have nans
-    return {**a, **b, **c}
+    b = {ige: float for ige in IGES}
+    c = {target: int for target in TARGETS}
+    d = {**a, **b, **c}
+    if with_nans:
+        columns = [
+            "Age",
+            "Gender",
+            "Blood_Month_sample",
+            "Rural_or_urban_area",
+        ] + TARGETS
+        for col in columns:
+            d[col] = float
+    return d
 
 
 def bruteforce_test_dtypes(csv_file_path: Union[str, Path]):
@@ -236,7 +251,9 @@ def impute_dataframe(df: pd.DataFrame) -> pd.DataFrame:
     x = mapper.fit_transform(df)
     df = pd.DataFrame(data=x, columns=impute_columns + non_impute_columns)
     df = df.infer_objects()
-    return reorder_columns(df)
+    df = df.astype({c: t for c, t in get_dtypes().items() if c in df.columns})
+    df = reorder_columns(df)
+    return df
 
 
 def load_csv(
@@ -266,10 +283,15 @@ def load_csv(
             times MLSMOTE should be applied to the dataset. Defaults to 1.
     """
     logging.debug("Loading dataframe {}", path)
-    dtypes = get_dtypes()
     df = pd.read_csv(path)
     # Apparently typing only once isn't enough
-    df = df.astype({c: t for c, t in dtypes.items() if c in df.columns})
+    df = df.astype(
+        {
+            c: t
+            for c, t in get_dtypes(with_nans=True).items()
+            if c in df.columns
+        }
+    )
     if preprocess:
         df = preprocess_dataframe(df)
     else:
