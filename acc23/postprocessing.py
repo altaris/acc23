@@ -23,7 +23,7 @@ from torch import Tensor, nn
 from torch.utils.data import DataLoader
 
 from acc23.constants import TARGETS, TRUE_TARGETS
-from acc23.dataset import ACCDataset, Transform_t
+from acc23.dataset import ACCDataset, ImageTransform_t
 from acc23.preprocessing import load_csv, reorder_columns, set_fake_targets
 
 
@@ -31,7 +31,7 @@ def evaluate_on_dataset(
     model: nn.Module,
     data: Union[str, Path, pd.DataFrame],
     image_dir_path: Union[str, Path],
-    image_transform: Optional[Transform_t] = None,
+    image_transform: Optional[ImageTransform_t] = None,
     load_csv_kwargs: Optional[dict] = None,
     batch_size: int = 32,
 ) -> pd.DataFrame:
@@ -50,7 +50,7 @@ def evaluate_on_test_dataset(
     model: nn.Module,
     csv_file_path: Union[str, Path],
     image_dir_path: Union[str, Path],
-    image_transform: Optional[Transform_t] = None,
+    image_transform: Optional[ImageTransform_t] = None,
     load_csv_kwargs: Optional[dict] = None,
     batch_size: int = 32,
 ) -> pd.DataFrame:
@@ -71,6 +71,7 @@ def evaluate_on_test_dataset(
     )
     raw = pd.read_csv(csv_file_path)
     df["trustii_id"] = raw["trustii_id"]
+    df = df[["trustii_id"] + TARGETS]  # Columns order
     return df
 
 
@@ -78,7 +79,7 @@ def evaluate_on_train_dataset(
     model: nn.Module,
     csv_file_path: Union[str, Path],
     image_dir_path: Union[str, Path],
-    image_transform: Optional[Transform_t] = None,
+    image_transform: Optional[ImageTransform_t] = None,
     load_csv_kwargs: Optional[dict] = None,
     batch_size: int = 32,
 ) -> Tuple[pd.DataFrame, pd.DataFrame]:

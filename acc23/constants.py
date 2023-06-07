@@ -112,6 +112,41 @@ Ratio of rows that have positive targets
 TODO: Don't hardcode this :/
 """
 
+TRUE_TARGETS_IRLBL = [
+    0.99999999,
+    1.26075267,
+    2.51474524,
+    1.35353533,
+    1.49125594,
+    2.24401909,
+    1.51534731,
+    1.60616436,
+    1.57382548,
+    3.10596016,
+    27.58822718,
+    22.33332802,
+    24.68420403,
+    9.87368317,
+    37.51998499,
+    10.90697548,
+    19.14285324,
+    8.68518438,
+    25.3513445,
+    20.39129991,
+    6.60563334,
+    72.15379065,
+    55.17643813,
+]
+"""
+IRLbl score of the true targets
+
+    from acc23 import load_csv, irlbl, TRUE_TARGETS
+    df = load_csv("data/train.csv", oversample=False)
+    irlbl(df[TRUE_TARGETS])
+
+TODO: Don't hardcode this :/
+"""
+
 TRUE_TARGETS_PREVALENCE = [
     0.6917404,
     0.54867256,

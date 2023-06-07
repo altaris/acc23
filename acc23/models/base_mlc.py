@@ -14,7 +14,7 @@ from sklearn.metrics import (
 )
 from torch import Tensor, nn, optim
 
-from acc23.constants import TRUE_TARGETS_COUNT, TRUE_TARGETS_PREVALENCE
+from acc23.constants import TRUE_TARGETS_IRLBL
 
 from .layers import concat_tensor_dict
 
@@ -22,15 +22,27 @@ from .layers import concat_tensor_dict
 class BaseMultilabelClassifier(pl.LightningModule):
     """Base class for multilabel classifiers (duh)"""
 
+    # pylint: disable=unused-argument
+    def __init__(self, lr: float = 1e-3) -> None:
+        super().__init__()
+        self.save_hyperparameters()
+
     def configure_optimizers(self) -> Any:
-        optimizer = optim.Adam(self.parameters(), lr=1e-3)
-        scheduler = optim.lr_scheduler.ReduceLROnPlateau(
-            optimizer, mode="min", factor=0.2, patience=20, min_lr=5e-5
+        optimizer = optim.Adam(
+            self.parameters(),
+            lr=self.hparams["lr"],
+            weight_decay=1e-5,
         )
+        # scheduler = optim.lr_scheduler.ReduceLROnPlateau(
+        #     optimizer, mode="min", factor=0.2, patience=20, min_lr=5e-5
+        # )
+        # scheduler = optim.lr_scheduler.OneCycleLR(
+        #     optimizer, max_lr=1e-2, steps_per_epoch=16, epochs=100
+        # )
         return {
             "optimizer": optimizer,
-            "lr_scheduler": scheduler,
-            "monitor": "val/loss",
+            # "lr_scheduler": scheduler,
+            # "monitor": "val/loss",
         }
 
     def evaluate(
@@ -48,71 +60,63 @@ class BaseMultilabelClassifier(pl.LightningModule):
         4. Precision score,
         5. Recall score,
         6. F1 score,
-        6. minimal F1 score (across targets).
+        7. an optional extra loss reported by the model (e.g. regularization).
 
         Furthermore, if `stage` is given, these values are also logged to
         tensorboard under `<stage>/loss`, `<stage>/acc`, `<stage>/ham` (lol),
-        `<stage>/prec`, `<stage>/rec`, `<stage>/f1`, and `<stage>/f1_min`
+        `<stage>/prec`, `<stage>/rec`, `<stage>/f1`, and `<stage>/extra`
         respectively.
         """
         out = self(x, img)  # out may be y_pred or (y_pred, extra loss term)
         y_pred, extra_loss = out if isinstance(out, tuple) else (out, 0.0)
-
         y_true = concat_tensor_dict(y)
-        # Replace nan targets by predicted values
-        y_true = torch.where(y_true.isnan(), y_pred.detach(), y_true)
-        y_true = (y_true > 0.0).float().to(y_pred.device)  # type: ignore
+        y_true = torch.where(  # Replace NaN targets
+            y_true.isnan(),
+            y_pred > 0.0,  # Predicted targets ...
+            # torch.randint_like(y_true, 2), # ... OR Random targets
+            y_true,
+        )
+        y_true = y_true.float().to(y_pred.device)  # type: ignore
 
         # Loss
-        # w = 1.0
-        prevalence = Tensor(TRUE_TARGETS_PREVALENCE).to(y_pred.device)
-        count = Tensor(TRUE_TARGETS_COUNT).to(y_pred.device)
         loss = (
             # nn.functional.mse_loss(y_pred.sigmoid(), y_true)
-            # nn.functional.binary_cross_entropy_with_logits(
-            #     y_pred,
-            #     y_true,
-            #     # weight=prevalence.max() / (prevalence + 1e-5),
-            #     # weight=(1 - beta) / (1 - beta**count + 1e-5),
-            # )
-            # class_balanced_focal_loss_with_logits(y_pred, y_true, count)
-            # rebalanced_bce_with_logits(y_pred, y_true, prevalence)
+            nn.functional.binary_cross_entropy_with_logits(
+                y_pred,
+                y_true,
+                weight=Tensor(TRUE_TARGETS_IRLBL).to(y_pred.device),
+            )
+            # class_balanced_focal_loss_with_logits(y_pred, y_true, n_true)
+            # rebalanced_bce_with_logits(y_pred, y_true, prev_true)
             # focal_loss_with_logits(y_pred, y_true)
-            distribution_balanced_loss_with_logits(y_pred, y_true, prevalence)
+            # distribution_balanced_loss_with_logits(y_pred, y_true, prev_true)
             # bp_mll_loss(y_pred.sigmoid(), y_true)
-            # - w * continuous_f1_score(y_pred.sigmoid(), y_true)
+            # - continuous_f1_score(y_pred.sigmoid(), y_true)
             + extra_loss
         )
 
         if stage is not None:
-            y_true_np = y_true.cpu().detach().numpy()
-            y_pred_np = y_pred.cpu().detach().numpy() > 0
-            acc = accuracy_score(y_true_np, y_pred_np)
-            ham = hamming_loss(y_true_np, y_pred_np)
             kw = {
-                "y_true": y_true_np,
-                "y_pred": y_pred_np,
+                "y_true": y_true.cpu().detach().numpy(),
+                "y_pred": y_pred.cpu().detach().numpy() > 0,
                 "average": "macro",
                 "zero_division": 0,
             }
-            prec = precision_score(**kw)
-            rec = recall_score(**kw)
-            f1 = f1_score(**kw)
             self.log_dict(
                 {
                     f"{stage}/loss": loss,
-                    f"{stage}/f1": f1,
+                    f"{stage}/f1": f1_score(**kw),
                 },
                 sync_dist=True,
                 prog_bar=True,
             )
             self.log_dict(
                 {
-                    f"{stage}/acc": acc,
+                    f"{stage}/acc": accuracy_score(kw["y_true"], kw["y_pred"]),
                     f"{stage}/extra": extra_loss,
-                    f"{stage}/ham": ham,
-                    f"{stage}/prec": prec,
-                    f"{stage}/rec": rec,
+                    f"{stage}/ham": hamming_loss(kw["y_true"], kw["y_pred"]),
+                    f"{stage}/prec": precision_score(**kw),
+                    f"{stage}/rec": recall_score(**kw),
                 },
                 sync_dist=True,
             )

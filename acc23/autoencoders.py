@@ -35,17 +35,21 @@ class GenerateCallback(pl.Callback):
     def on_train_epoch_end(
         self, trainer: pl.Trainer, pl_module: pl.LightningModule
     ):
-        if trainer.current_epoch % self.every_n_epochs == 0:
-            with torch.no_grad():
-                rimgs = pl_module(self.imgs).detach().cpu()
-            imgs = torch.stack([self.imgs, rimgs], dim=1)
-            imgs = imgs.flatten(0, 1)
-            grid = torchvision.utils.make_grid(imgs, nrow=2)
-            trainer.logger.experiment.add_image(  # type: ignore
-                f"recons/{pl_module.__class__.__name__.lower()}",
-                grid,
-                global_step=trainer.global_step,
-            )
+        if not (
+            trainer.current_epoch > 0
+            and trainer.current_epoch % self.every_n_epochs == 0
+        ):
+            return
+        with torch.no_grad():
+            rimgs = pl_module(self.imgs).detach().cpu()
+        imgs = torch.stack([self.imgs, rimgs], dim=1)
+        imgs = imgs.flatten(0, 1)
+        grid = torchvision.utils.make_grid(imgs, nrow=2, pad_value=1)
+        trainer.logger.experiment.add_image(  # type: ignore
+            f"recons/{pl_module.__class__.__name__.lower()}",
+            grid,
+            global_step=trainer.global_step,
+        )
 
 
 class AE(pl.LightningModule):
@@ -62,7 +66,7 @@ class AE(pl.LightningModule):
             IMAGE_SIZE,
             IMAGE_SIZE,
         ),
-        latent_dim: int = 256,
+        latent_dim: int = 32,
     ) -> None:
         # TODO: assert that the input shape is square
         super().__init__()

@@ -18,7 +18,7 @@ from acc23.constants import IMAGE_SIZE, N_CHANNELS, TARGETS, TRUE_TARGETS
 from acc23.mlsmote import mlsmote
 from acc23.preprocessing import load_csv, load_image
 
-Transform_t = Callable[[torch.Tensor], torch.Tensor]
+ImageTransform_t = Callable[[torch.Tensor], torch.Tensor]
 
 
 class ACCDataset(Dataset):
@@ -29,13 +29,13 @@ class ACCDataset(Dataset):
 
     image_dir_path: Path
     data: pd.DataFrame
-    image_transform: Transform_t
+    image_transform: ImageTransform_t
 
     def __init__(
         self,
         data: Union[str, Path, pd.DataFrame],
         image_dir_path: Union[str, Path],
-        image_transform: Optional[Transform_t] = None,
+        image_transform: Optional[ImageTransform_t] = None,
         load_csv_kwargs: Optional[dict] = None,
     ):
         """
@@ -43,7 +43,7 @@ class ACCDataset(Dataset):
             data (Union[str, Path, pd.DataFrame]): the path to a csv file (e.g.
                 `data/train.csv`) or a dataframe
             image_dir_path (Union[str, Path]): e.g. `data/images`
-            image_transform (Optional[Transform_t]): [torchvision
+            image_transform (Optional[ImageTransform_t]): [torchvision
                 transforms](https://pytorch.org/vision/stable/transforms.html)
                 to apply to the images. Note that images are already resized to
                 `constants.IMAGE_RESIZE_TO` and rescales to $[0, 1]$ before
@@ -79,9 +79,7 @@ class ACCDataset(Dataset):
         img = self.image_transform(img)
         return x, y, img
 
-    def oversample(
-        self, n_neighbors: int = 5, n_rounds: int = 1
-    ) -> "ACCDataset":
+    def oversample(self, **kwargs) -> "ACCDataset":
         """
         MLSMOTE oversample
 
@@ -91,7 +89,7 @@ class ACCDataset(Dataset):
         Returns:
             `self`
         """
-        self.data = mlsmote(self.data, TRUE_TARGETS, n_neighbors, n_rounds)
+        self.data = mlsmote(self.data, TRUE_TARGETS, **kwargs)
         return self
 
     def train_test_split_dl(
@@ -152,19 +150,19 @@ class ImageFolderDataset(Dataset):
     particular, it complies with the constants defined in `acc23.constants`.
     """
 
-    image_transform: Transform_t
+    image_transform: ImageTransform_t
     image_file_paths: List[Path]
 
     def __init__(
         self,
         image_dir_path: Union[str, Path],
-        image_transform: Optional[Transform_t] = None,
+        image_transform: Optional[ImageTransform_t] = None,
     ):
         """
         Args:
             image_dir_path (Union[str, Path]): e.g. `"data/images"`. The
                 directory should only contain images.
-            image_transform (Optional[Transform_t]): [torchvision
+            image_transform (Optional[ImageTransform_t]): [torchvision
                 transforms](https://pytorch.org/vision/stable/transforms.html)
                 to apply to the images. Note that images are already resized to
                 `constants.IMAGE_RESIZE_TO` and rescales to $[0, 1]$ before
