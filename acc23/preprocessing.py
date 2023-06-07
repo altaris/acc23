@@ -146,7 +146,7 @@ def get_dtypes(with_nans: bool = False) -> Dict[str, Any]:
         "Treatment_of_atopic_dematitis": str,  # Comma-sep lst of codes
     }
     b = {ige: float for ige in IGES}
-    c = {target: int for target in TARGETS}
+    c = {target: float for target in TARGETS}  # NaN targets are OK
     d = {**a, **b, **c}
     if with_nans:
         columns = [
@@ -154,7 +154,7 @@ def get_dtypes(with_nans: bool = False) -> Dict[str, Any]:
             "Gender",
             "Blood_Month_sample",
             "Rural_or_urban_area",
-        ] + TARGETS
+        ]  # + TARGETS
         for col in columns:
             d[col] = float
     return d
@@ -185,7 +185,9 @@ def bruteforce_test_dtypes(csv_file_path: Union[str, Path]):
             )
 
 
-def impute_dataframe(df: pd.DataFrame) -> pd.DataFrame:
+def impute_dataframe(
+    df: pd.DataFrame, impute_targets: bool = False
+) -> pd.DataFrame:
     """
     Performs various imputation tasks on the dataframe.
 
@@ -210,17 +212,16 @@ def impute_dataframe(df: pd.DataFrame) -> pd.DataFrame:
     imputers = [
         (["Age"], SimpleImputer()),
         (["Gender"], SimpleImputer(strategy="most_frequent")),
-        # Columns with NaN classes, aka "unknown" classes, aka 9.
-        # (
-        #     None,
-        #     KNNImputer(),
-        # ),
         (IGES, KNNImputer()),
     ]
-    # Some targets have NaNs, which is absurd. Fortunately, most true
-    # targets don't, except for Severe_Allergy (1323/2989 NaNs, 44.26%)
-    # if TARGETS[0] in df.columns:
-    #     imputers.append((TARGETS, SimpleImputer(strategy="most_frequent")))
+    if impute_targets:
+        if all(t in df.columns for t in TARGETS):
+            imputers.append((TARGETS, KNNImputer()))
+        else:
+            logging.warning(
+                "impute_targets is True but the dataframe does not have all"
+                "(true and fake) target columns"
+            )
     impute_columns: List[str] = []
     for i in imputers:
         c: Union[str, List[str]] = i[0]
@@ -230,10 +231,14 @@ def impute_dataframe(df: pd.DataFrame) -> pd.DataFrame:
     non_impute_columns = [c for c in df.columns if c not in impute_columns]
     for c in non_impute_columns:
         a, b = df[c].count(), len(df)
-        if a != b:
+        if not (
+            a == b  # No NaNs
+            or c in TARGETS  # Some tgts. can be NaN but are ignored at eval.
+            or df.dtypes[c] == "O"  # Obj. cols. can't be imputed
+        ):
             logging.warning(
-                "Columns '{}' is marked for non-imputation but it has "
-                "{} / {} NaN values ({} %)",
+                "Non-object columns '{}' is marked for non-imputation but it "
+                "has {} / {} NaN values ({}%)",
                 c,
                 b - a,
                 b,
@@ -259,9 +264,10 @@ def impute_dataframe(df: pd.DataFrame) -> pd.DataFrame:
 def load_csv(
     path: Union[str, Path],
     preprocess: bool = True,
+    drop_nan_targets: bool = True,
     impute: bool = True,
+    impute_targets: bool = False,
     oversample: bool = False,
-    n_oversample_rounds: int = 1,
 ) -> pd.DataFrame:
     """
     Opens a csv dataframe (presumable `data/train.csv` or `data/test.csv`),
@@ -273,18 +279,56 @@ def load_csv(
         path (Union[str, Path]): Path of the csv file.
         preprocess (bool): Whether the dataframe should go through
             `acc23.preprocessing.preprocess_dataframe`.
+        drop_nan_targets (bool): Drop the rows where at least one true target
+            is NaN or 9.
         impute (bool): Whether the dataframe should be imputed (see
             `acc23.preprocessing.impute_dataframe`). Note that imputation is
             not performed if `preprocess=False`.
-        oversample (bool): Whether should be oversampled to try and fix class
-            imbalance (see `acc23.mlsmote.mlsmote`). Note that oversampling is
-            not performed if `preprocess=False` or if `impute=False`.
-        n_oversample_rounds (int): Numver of MLSMOTE rounds, i.e. number of
-            times MLSMOTE should be applied to the dataset. Defaults to 1.
+        impute_targets (bool): If imputing (`impute=True`), whether to impute
+            the target columns as well. This has no effect if
+            `drop_nan_targets=True`.
+        oversample (bool): Whether the dataset should be oversampled to try
+            and fix class imbalance (see `acc23.mlsmote.mlsmote`). Note that
+            oversampling is not performed unless `preprocess=True`,
+            `impute=True`, and either `drop_nan_targets=True` or
+            `impute_targets=True`.
+
+    Here is the percentages of NaNs for each true target:
+
+        Severe_Allergy                                    44.128
+        Type_of_Respiratory_Allergy_ARIA                  49.582
+        Type_of_Respiratory_Allergy_CONJ                  49.582
+        Type_of_Respiratory_Allergy_GINA                  49.582
+        Type_of_Respiratory_Allergy_IGE_Pollen_Gram       49.582
+        Type_of_Respiratory_Allergy_IGE_Pollen_Herb       49.582
+        Type_of_Respiratory_Allergy_IGE_Pollen_Tree       49.582
+        Type_of_Respiratory_Allergy_IGE_Dander_Animals    49.582
+        Type_of_Respiratory_Allergy_IGE_Mite_Cockroach    49.582
+        Type_of_Respiratory_Allergy_IGE_Molds_Yeast       49.582
+        Type_of_Food_Allergy_Aromatics                    46.236
+        Type_of_Food_Allergy_Egg                          46.236
+        Type_of_Food_Allergy_Fish                         46.236
+        Type_of_Food_Allergy_Fruits_and_Vegetables        46.236
+        Type_of_Food_Allergy_Mammalian_Milk               46.236
+        Type_of_Food_Allergy_Oral_Syndrom                 46.236
+        Type_of_Food_Allergy_Other_Legumes                46.236
+        Type_of_Food_Allergy_Peanut                       46.236
+        Type_of_Food_Allergy_Shellfish                    46.236
+        Type_of_Food_Allergy_TPO                          46.236
+        Type_of_Food_Allergy_Tree_Nuts                    46.236
+        Type_of_Venom_Allergy_ATCD_Venom                   0.000
+        Type_of_Venom_Allergy_IGE_Venom                    0.000
+
+    This series can be obtained with the following snippet:
+
+        from acc23 import load_csv, TRUE_TARGETS
+        df = load_csv("data/train.csv", drop_nan_targets=False, impute=False)
+        n = len(df)
+        ((n - df[TRUE_TARGETS].count(axis=0)) / len(df) * 100).round(3)
     """
-    logging.debug("Loading dataframe {}", path)
+    logging.info("Loading dataframe {}", path)
     df = pd.read_csv(path)
-    # Apparently typing only once isn't enough
+    # Apparently typing only once isn't enough :/
     df = df.astype(
         {
             c: t
@@ -293,15 +337,22 @@ def load_csv(
         }
     )
     if preprocess:
-        df = preprocess_dataframe(df)
+        df = preprocess_dataframe(df, drop_nan_targets)
     else:
         logging.debug("Skipped preprocessing")
     if impute and preprocess:
-        df = impute_dataframe(df)
+        df = impute_dataframe(
+            df, impute_targets=(not drop_nan_targets) and impute_targets
+        )
     else:
         logging.debug("Skipped imputation")
-    if oversample and impute and preprocess:
-        df = mlsmote(df, TRUE_TARGETS, n_rounds=n_oversample_rounds)
+    if (
+        oversample
+        and impute
+        and preprocess
+        and (drop_nan_targets or impute_targets)
+    ):
+        df = mlsmote(df, TRUE_TARGETS)
     else:
         logging.debug("Skipped oversampling")
     return reorder_columns(df)
