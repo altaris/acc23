@@ -9,10 +9,11 @@ ACC23 main multi-classification model: prototype "Gordon". Fusion model
 """
 __docformat__ = "google"
 
-from typing import Any, Dict, Union
+from typing import Any, Dict, Tuple, Union
 
 import torch
 from torch import Tensor, nn
+from transformers.activations import get_activation
 
 from acc23.constants import IMAGE_SIZE, N_CHANNELS, N_FEATURES, N_TRUE_TARGETS
 
@@ -29,48 +30,60 @@ class Gordon(BaseMultilabelClassifier):
     vision_branch_b: nn.Module  # Conv fusion encoder
     main_branch: nn.Module  # Fusion branch
 
-    def __init__(self, *args: Any, **kwargs: Any) -> None:
-        super().__init__(*args, **kwargs)
+    def __init__(
+        self,
+        n_features: int = N_FEATURES,
+        image_shape: Tuple[int, int, int] = (
+            N_CHANNELS,
+            IMAGE_SIZE,
+            IMAGE_SIZE,
+        ),
+        out_dim: int = N_TRUE_TARGETS,
+        embed_dim: int = 256,
+        dropout: float = 0.5,
+        activation: str = "gelu",
+        **kwargs: Any,
+    ) -> None:
+        super().__init__(**kwargs)
         self.save_hyperparameters()
-        embed_dim, activation = 512, "gelu"
-        # self.tabular_branch = nn.Sequential(
-        #     ResNetLinearLayer(N_FEATURES, 256, activation=activation),
-        #     ResNetLinearLayer(256, embed_dim, activation=activation),
+        nc, s, _ = image_shape
+        # self.tabular_branch = linear_chain(
+        #     n_features,
+        #     [256, 256, embed_dim],
+        #     activation=activation,
         # )
-        self.tabular_branch = linear_chain(
-            N_FEATURES,
-            [256, 256, embed_dim],
-            activation=activation,
+        self.tabular_branch = nn.Sequential(
+            nn.Linear(n_features, embed_dim),
+            get_activation(activation),
         )
-        # self.vision_branch_a = nn.Sequential(
-        #     nn.MaxPool2d(5, 1, 2),  # IMAGE_RESIZE_TO = 512 -> 512
-        #     nn.Conv2d(N_CHANNELS, 8, 4, 2, 1, bias=False),  # -> 256
-        #     nn.BatchNorm2d(8),
-        #     get_activation(activation),
-        #     # nn.MaxPool2d(3, 1, 1),  # 256 -> 256
-        # )
         self.vision_branch_a = nn.Sequential(
             nn.MaxPool2d(5, 2, 2),  # IMAGE_RESIZE_TO = 512 -> 256
         )
         self.vision_branch_b = VisionEncoder(
-            in_channels=N_CHANNELS,
+            in_channels=nc,
             out_channels=[
                 8,  # 256 -> 128
                 8,  # -> 64
-                16,  # -> 32
+                8,  # -> 32
                 16,  # -> 16
-                32,  # -> 8
-                32,  # -> 4 => 512
+                16,  # -> 8
+                16,  # -> 4 => 256
             ],
             in_features=embed_dim,
             activation=activation,
         )
+        # self.main_branch = nn.Sequential(
+        #     nn.Linear(2 * embed_dim, out_dim),
+        # )
         self.main_branch = nn.Sequential(
-            nn.Linear(2 * embed_dim, N_TRUE_TARGETS),
+            nn.Linear(2 * embed_dim, embed_dim),
+            get_activation(activation),
+            nn.Dropout1d(dropout),
+            nn.Linear(embed_dim, out_dim),
         )
         self.example_input_array = (
-            torch.zeros((32, N_FEATURES)),
-            torch.zeros((32, N_CHANNELS, IMAGE_SIZE, IMAGE_SIZE)),
+            torch.zeros((32, n_features)),
+            torch.zeros((32, nc, s, s)),
         )
         self.forward(*self.example_input_array)
 
