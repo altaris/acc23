@@ -56,7 +56,7 @@ def _mlsmote(
                 sample=sample,
                 ref_neigh=min_bag.iloc[np.random.choice(idx)],
                 neighbors=min_bag.iloc[idx],
-                targets=targets
+                targets=targets,
             )
             synth_smpls.append(synth_smpl)
         df = pd.concat([df, pd.DataFrame(synth_smpls)], ignore_index=True)
