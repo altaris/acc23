@@ -132,6 +132,33 @@ class BaseMultilabelClassifier(pl.LightningModule):
         return self.evaluate(x, y, img, "val")
 
 
+class ModuleWeightsHistogram(pl.Callback):
+    """Logs a histogram of the module's weights"""
+
+    every_n_epochs: int
+    key: str
+
+    def __init__(
+        self, every_n_epochs: int = 5, key: str = "train/weights"
+    ) -> None:
+        super().__init__()
+        self.every_n_epochs = every_n_epochs
+        self.key = key
+
+    def on_train_epoch_end(
+        self, trainer: pl.Trainer, pl_module: pl.LightningModule
+    ) -> None:
+        if trainer.current_epoch % self.every_n_epochs != 0:
+            return
+        ps = [p.flatten() for p in pl_module.parameters()]
+        trainer.logger.experiment.add_histogram(
+            self.key,
+            torch.concat(ps),
+            bins="auto",
+            global_step=trainer.global_step,
+        )
+
+
 def bp_mll_loss(y_pred: Tensor, y_true: Tensor, *_, **__) -> Tensor:
     """
     BM-MLL loss introduced in
