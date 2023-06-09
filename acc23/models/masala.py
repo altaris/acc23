@@ -1,10 +1,10 @@
 """
-ACC23 main multi-classification model: prototype "London". Like Ampere but the
-convolutional branch is a vision transformer
+ACC23 main multi-classification model: prototype "Masala". Like London, but the
+vision transformer is replaced by a cross modal vision transformer.
 """
 __docformat__ = "google"
 
-from typing import Dict, Tuple, Union
+from typing import Dict, Literal, Tuple, Union
 
 import torch
 from torch import Tensor, nn
@@ -14,14 +14,15 @@ from acc23.constants import IMAGE_SIZE, N_CHANNELS, N_FEATURES, N_TRUE_TARGETS
 
 from .base_mlc import BaseMultilabelClassifier
 from .layers import concat_tensor_dict
-from .transformers import VisionTransformer
+from .transformers import CrossModalVisionTransformer
 
 
-class London(BaseMultilabelClassifier):
+class Masala(BaseMultilabelClassifier):
     """See module documentation"""
 
     tabular_encoder: nn.Module  # Dense input branch
-    vision_transformer: nn.Module  # Conv. input branch
+    pooling: nn.Module
+    vision_transformer: nn.Module
     main_branch: nn.Module  # Merge branch
 
     def __init__(
@@ -37,6 +38,7 @@ class London(BaseMultilabelClassifier):
         patch_size: int = 16,
         n_transformers: int = 32,
         n_heads: int = 16,
+        method: Literal["a", "b", "c", "f"] = "a",
         dropout: float = 0.1,
         activation: str = "gelu",
     ) -> None:
@@ -52,19 +54,18 @@ class London(BaseMultilabelClassifier):
         #     [512, embed_dim],
         #     activation=activation,
         # )
-        self.vision_transformer = nn.Sequential(
-            nn.MaxPool2d(5, 2, 2),  # 512 -> 256
-            VisionTransformer(
-                patch_size=patch_size,
-                input_shape=(nc, s // 2, s // 2),
-                embed_dim=embed_dim,
-                hidden_dim=2 * embed_dim,
-                out_features=embed_dim,
-                num_transformers=n_transformers,
-                num_heads=n_heads,
-                dropout=dropout,
-                activation=activation,
-            ),
+        self.pooling = nn.MaxPool2d(5, 2, 2)  # 512 -> 256
+        self.vision_transformer = CrossModalVisionTransformer(
+            patch_size=patch_size,
+            input_shape=(nc, s // 2, s // 2),
+            embed_dim=embed_dim,
+            hidden_dim=2 * embed_dim,
+            out_features=embed_dim,
+            num_transformers=n_transformers,
+            num_heads=n_heads,
+            method=method,
+            dropout=dropout,
+            activation=activation,
         )
         self.main_branch = nn.Sequential(
             nn.Linear(2 * embed_dim, embed_dim),
@@ -106,7 +107,7 @@ class London(BaseMultilabelClassifier):
         img = img.to(self.device)  # type: ignore
         a = self.tabular_encoder(x)
         b = (
-            self.vision_transformer(img)
+            self.vision_transformer(self.pooling(img), a)
             # if img.max() > 0
             # else torch.zeros_like(a)
         )

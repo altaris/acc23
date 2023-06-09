@@ -14,7 +14,7 @@ from sklearn.metrics import (
 )
 from torch import Tensor, nn, optim
 
-from acc23.constants import TRUE_TARGETS_IRLBL
+from acc23.constants import TRUE_TARGETS_IRLBL, TRUE_TARGETS_PREVALENCE
 
 from .layers import concat_tensor_dict
 
@@ -23,7 +23,7 @@ class BaseMultilabelClassifier(pl.LightningModule):
     """Base class for multilabel classifiers (duh)"""
 
     # pylint: disable=unused-argument
-    def __init__(self, lr: float = 1e-3) -> None:
+    def __init__(self, lr: float = 1e-4) -> None:
         super().__init__()
         self.save_hyperparameters()
 
@@ -79,6 +79,7 @@ class BaseMultilabelClassifier(pl.LightningModule):
         y_true = y_true.float().to(y_pred.device)  # type: ignore
 
         # Loss
+        prev_true = torch.tensor(TRUE_TARGETS_PREVALENCE, device=y_pred.device)
         loss = (
             # nn.functional.mse_loss(y_pred.sigmoid(), y_true)
             nn.functional.binary_cross_entropy_with_logits(
@@ -247,19 +248,32 @@ def distribution_balanced_loss_with_logits(
     kappa: float = 5e-2,
 ) -> Tensor:
     """
-    A mix between focal loss (`acc23.models.base_mlc.focal_loss_with_logits`) and
-    rebalanced cross entropy
+    Distribution-balanced loss $\\mathcal{L}_{DB}$ from
+
+        Wu, T., Huang, Q., Liu, Z., Wang, Y., Lin, D. (2020).
+        Distribution-Balanced Loss for Multi-label Classification in
+        Long-Tailed Datasets. In: Vedaldi, A., Bischof, H., Brox, T., Frahm,
+        JM. (eds) Computer Vision - ECCV 2020. ECCV 2020. Lecture Notes in
+        Computer Science(), vol 12349. Springer, Cham.
+        https://doi.org/10.1007/978-3-030-58548-8_10
+
+    It is essentially a mix between focal loss
+    (`acc23.models.base_mlc.focal_loss_with_logits`) and rebalanced cross
+    entropy
     (`acc23.models.base_mlc.rebalanced_binary_cross_entropy_with_logits`).
+
+    See also:
+
+        Huang, Yi, et al. "Balancing methods for multi-label text
+        classification with long-tailed class distribution." arXiv preprint
+        arXiv:2109.04712 (2021).
+
     """
     nu = kappa * torch.log(1 / (prevalence + 1e-5) - 1 + 1e-5)
-    q_ns = y_true * (y_pred - nu) + (1 - y_true) * lambda_ * (y_pred - nu)
+    q_ns = torch.where(y_true == 1, 1, lambda_) * (y_pred - nu)
     q = q_ns.sigmoid()
-    foc = (y_true * (1 - q) + (1 - y_true) * q) ** gamma
-    lmb = y_true + (1 - y_true) / (lambda_ + 1e-5)
-    # n_targets = y_true.shape[1]
-    # pc = 1 / (n_targets * prevalence + 1e-5)
-    # pi = torch.sum(y_true / (n_targets * prevalence + 1e-5), dim=-1)
-    # r = torch.outer(1 / (pi + 1e-5), pc)
+    foc = torch.where(y_true == 1, 1 - q, q) ** gamma
+    lmb = torch.where(y_true == 1, 1, 1 / (lambda_ + 1e-5))
     r_pi = torch.sum(y_true / (prevalence + 1e-5), dim=-1)
     r = 1 / (torch.outer(r_pi, prevalence) + 1e-5)
     r_hat = alpha + torch.sigmoid(beta * (r - mu))
@@ -277,14 +291,24 @@ def focal_loss_with_logits(
     """
     Balanced-focal loss of
 
-        Focal Loss for Dense Object Detection
+        T. -Y. Lin, P. Goyal, R. Girshick, K. He and P. Dollár, "Focal Loss for
+        Dense Object Detection," 2017 IEEE International Conference on Computer
+        Vision (ICCV), Venice, Italy, 2017, pp. 2999-3007, doi:
+        10.1109/ICCV.2017.324.
+
+    See also:
+
+        Huang, Yi, et al. "Balancing methods for multi-label text
+        classification with long-tailed class distribution." arXiv preprint
+        arXiv:2109.04712 (2021).
+
     """
     p = y_pred.sigmoid()
-    foc = (y_true * (1 - p) + (1 - y_true) * p) ** gamma
+    foc = torch.where(y_true == 1, 1 - p, p) ** gamma
     bce = nn.functional.binary_cross_entropy_with_logits(
         y_pred, y_true, reduction="none"
     )
-    return (foc * bce).sum(-1).mean()
+    return (foc * bce).mean()
 
 
 def rebalanced_bce_with_logits(
@@ -296,10 +320,15 @@ def rebalanced_bce_with_logits(
     mu: float = 0.3,
 ) -> Tensor:
     """
-    Implementation of
+    Rebalanced binary cross-entropy loss $\\mathcal{L}_{R-BCE}$ from
 
-        Distribution-Balanced Loss for Multi-Label Classification in
-        Long-Tailed Datasets
+        Wu, T., Huang, Q., Liu, Z., Wang, Y., Lin, D. (2020).
+        Distribution-Balanced Loss for Multi-label Classification in
+        Long-Tailed Datasets. In: Vedaldi, A., Bischof, H., Brox, T., Frahm,
+        JM. (eds) Computer Vision - ECCV 2020. ECCV 2020. Lecture Notes in
+        Computer Science(), vol 12349. Springer, Cham.
+        https://doi.org/10.1007/978-3-030-58548-8_10
+
     """
     # prevalence: (C,), pc: (C,), pi: (N,) => r: (N, C)
     # n_targets = y_true.shape[1]
@@ -312,4 +341,4 @@ def rebalanced_bce_with_logits(
     bce = nn.functional.binary_cross_entropy_with_logits(
         y_pred, y_true, reduction="none"
     )
-    return (r_hat * bce).sum(-1).mean()
+    return (r_hat * bce).mean()
