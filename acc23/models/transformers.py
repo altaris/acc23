@@ -363,11 +363,10 @@ class VisionTransformer(nn.Module):
         patch_size: int,
         input_shape: Tuple[int, int, int],
         embed_dim: int,
-        hidden_dim: int,
-        out_features: int,
+        out_dim: int,
         num_transformers: int,
         num_heads: int,
-        dropout: float = 0.2,
+        mlp_dropout: float = 0.1,
         activation: str = "gelu",
     ) -> None:
         """
@@ -375,8 +374,7 @@ class VisionTransformer(nn.Module):
             patch_size (int):
             input_shape (Tuple[int, int, int]):
             embed_dim (int):
-            hidden_dim (int):
-            out_features (int):
+            out_dim (int):
             num_transformers (int):
             num_heads (int):
             method (Literal["a", "b", "c", "f"]): Cross modal transformer
@@ -399,17 +397,20 @@ class VisionTransformer(nn.Module):
                 nn.TransformerEncoderLayer(
                     d_model=embed_dim,
                     nhead=num_heads,
-                    dim_feedforward=hidden_dim,
+                    dim_feedforward=embed_dim,
                     activation=activation,
+                    dropout=0.0,
                 )
                 for _ in range(num_transformers)
             ]
         )
         self.mlp_head = nn.Sequential(
             nn.LayerNorm(embed_dim),
-            nn.Linear(embed_dim, out_features),
+            nn.Linear(embed_dim, out_dim),
         )
-        self.dropout = nn.Dropout(dropout) if dropout > 0 else nn.Identity()
+        self.dropout = (
+            nn.Dropout(mlp_dropout) if mlp_dropout > 0 else nn.Identity()
+        )
         self.class_token = nn.Parameter(torch.randn(embed_dim))
         self.pos_embed = nn.Parameter(torch.randn(np + 1, embed_dim))
 

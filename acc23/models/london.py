@@ -33,11 +33,11 @@ class London(BaseMultilabelClassifier):
             IMAGE_SIZE,
         ),
         out_dim: int = N_TRUE_TARGETS,
-        embed_dim: int = 1024,
+        embed_dim: int = 512,
         patch_size: int = 16,
-        n_transformers: int = 32,
+        n_transformers: int = 16,
         n_heads: int = 16,
-        dropout: float = 0.1,
+        dropout: float = 0.5,
         activation: str = "gelu",
     ) -> None:
         super().__init__()
@@ -53,18 +53,30 @@ class London(BaseMultilabelClassifier):
         #     activation=activation,
         # )
         self.vision_transformer = nn.Sequential(
-            nn.MaxPool2d(5, 2, 2),  # 512 -> 256
+            # nn.MaxPool2d(5, 2, 2),  # 512 -> 256
             VisionTransformer(
                 patch_size=patch_size,
-                input_shape=(nc, s // 2, s // 2),
-                embed_dim=embed_dim,
-                hidden_dim=2 * embed_dim,
-                out_features=embed_dim,
+                input_shape=(nc, s, s),
+                # input_shape=(nc, s // 2, s // 2),
+                embed_dim=2 * embed_dim,
+                out_dim=embed_dim,
                 num_transformers=n_transformers,
                 num_heads=n_heads,
-                dropout=dropout,
+                mlp_dropout=0.0,
                 activation=activation,
             ),
+            # ViT(
+            #     image_size=s,
+            #     channels=nc,
+            #     patch_size=patch_size,
+            #     num_classes=embed_dim,
+            #     dim=embed_dim,
+            #     depth=n_transformers,
+            #     heads=n_heads,
+            #     mlp_dim=embed_dim,
+            #     dropout=0,
+            #     emb_dropout=0,
+            # )
         )
         self.main_branch = nn.Sequential(
             nn.Linear(2 * embed_dim, embed_dim),
