@@ -5,6 +5,7 @@ from typing import Any, Dict, Optional
 
 import pytorch_lightning as pl
 import torch
+from loguru import logger as logging
 from sklearn.metrics import (
     accuracy_score,
     f1_score,
@@ -23,7 +24,7 @@ class BaseMultilabelClassifier(pl.LightningModule):
     """Base class for multilabel classifiers (duh)"""
 
     # pylint: disable=unused-argument
-    def __init__(self, lr: float = 1e-4) -> None:
+    def __init__(self, lr: float = 1e-3) -> None:
         super().__init__()
         self.save_hyperparameters()
 
@@ -36,13 +37,16 @@ class BaseMultilabelClassifier(pl.LightningModule):
         # scheduler = optim.lr_scheduler.ReduceLROnPlateau(
         #     optimizer, mode="min", factor=0.2, patience=20, min_lr=5e-5
         # )
-        # scheduler = optim.lr_scheduler.OneCycleLR(
-        #     optimizer, max_lr=1e-2, steps_per_epoch=16, epochs=100
-        # )
+        scheduler = optim.lr_scheduler.OneCycleLR(
+            optimizer,
+            max_lr=1e-2,
+            steps_per_epoch=38,  # TODO: do not hardcode
+            epochs=200,  # TODO: do not hardcode
+        )
         return {
             "optimizer": optimizer,
-            # "lr_scheduler": scheduler,
-            # "monitor": "val/loss",
+            "lr_scheduler": scheduler,
+            "monitor": "val/loss",
         }
 
     def evaluate(
@@ -82,15 +86,15 @@ class BaseMultilabelClassifier(pl.LightningModule):
         prev_true = torch.tensor(TRUE_TARGETS_PREVALENCE, device=y_pred.device)
         loss = (
             # nn.functional.mse_loss(y_pred.sigmoid(), y_true)
-            nn.functional.binary_cross_entropy_with_logits(
-                y_pred,
-                y_true,
-                weight=Tensor(TRUE_TARGETS_IRLBL).to(y_pred.device),
-            )
+            # nn.functional.binary_cross_entropy_with_logits(
+            #     y_pred,
+            #     y_true,
+            #     weight=Tensor(TRUE_TARGETS_IRLBL).to(y_pred.device),
+            # )
             # class_balanced_focal_loss_with_logits(y_pred, y_true, n_true)
             # rebalanced_bce_with_logits(y_pred, y_true, prev_true)
             # focal_loss_with_logits(y_pred, y_true)
-            # distribution_balanced_loss_with_logits(y_pred, y_true, prev_true)
+            distribution_balanced_loss_with_logits(y_pred, y_true, prev_true)
             # bp_mll_loss(y_pred.sigmoid(), y_true)
             # - continuous_f1_score(y_pred.sigmoid(), y_true)
             + extra_loss
@@ -138,6 +142,7 @@ class ModuleWeightsHistogram(pl.Callback):
 
     every_n_epochs: int
     key: str
+    warned_wrong_logger: bool = False
 
     def __init__(
         self, every_n_epochs: int = 5, key: str = "train/weights"
@@ -152,12 +157,20 @@ class ModuleWeightsHistogram(pl.Callback):
         if trainer.current_epoch % self.every_n_epochs != 0:
             return
         ps = [p.flatten() for p in pl_module.parameters()]
-        trainer.logger.experiment.add_histogram(
-            self.key,
-            torch.concat(ps),
-            bins="auto",
-            global_step=trainer.global_step,
-        )
+        if isinstance(trainer.logger, pl.loggers.TensorBoardLogger):
+            trainer.logger.experiment.add_histogram(
+                self.key,
+                torch.concat(ps),
+                bins="auto",
+                global_step=trainer.global_step,
+            )
+        elif not self.warned_wrong_logger:
+            logging.warning(
+                "ModuleWeightsHistogram callback: Trainer's logger is has "
+                f"type '{type(trainer.logger)}', but a tensorboard logger is "
+                "required. This warning will only be logged once"
+            )
+            self.warned_wrong_logger = True
 
 
 def bp_mll_loss(y_pred: Tensor, y_true: Tensor, *_, **__) -> Tensor:

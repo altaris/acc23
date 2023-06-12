@@ -28,6 +28,7 @@ class Gordon(BaseMultilabelClassifier):
     tabular_branch: nn.Module  # Dense input branch
     vision_branch_a: nn.Module  # Conv. pool input branch
     vision_branch_b: nn.Module  # Conv fusion encoder
+    vision_branch_c: nn.Module  # Adjust to embed dim
     main_branch: nn.Module  # Fusion branch
 
     def __init__(
@@ -39,7 +40,7 @@ class Gordon(BaseMultilabelClassifier):
             IMAGE_SIZE,
         ),
         out_dim: int = N_TRUE_TARGETS,
-        embed_dim: int = 256,
+        embed_dim: int = 64,
         dropout: float = 0.5,
         activation: str = "gelu",
         **kwargs: Any,
@@ -56,22 +57,25 @@ class Gordon(BaseMultilabelClassifier):
             nn.Linear(n_features, embed_dim),
             get_activation(activation),
         )
-        self.vision_branch_a = nn.Sequential(
-            nn.MaxPool2d(5, 2, 2),  # IMAGE_RESIZE_TO = 512 -> 256
-        )
+        # self.vision_branch_a = nn.Sequential(
+        #     nn.MaxPool2d(5, 2, 2),  # IMAGE_RESIZE_TO = 512 -> 256
+        # )
+        self.vision_branch_a = nn.Identity()
         self.vision_branch_b = VisionEncoder(
             in_channels=nc,
             out_channels=[
+                8,  # 512 -> 256
                 8,  # 256 -> 128
                 8,  # -> 64
                 8,  # -> 32
-                16,  # -> 16
-                16,  # -> 8
-                16,  # -> 4 => 256
+                8,  # -> 16
+                8,  # -> 8
+                8,  # -> 4
             ],
             in_features=embed_dim,
             activation=activation,
         )
+        self.vision_branch_c = nn.Linear(4 * 4 * 8, embed_dim, bias=False)
         # self.main_branch = nn.Sequential(
         #     nn.Linear(2 * embed_dim, out_dim),
         # )
@@ -109,6 +113,7 @@ class Gordon(BaseMultilabelClassifier):
         u = self.tabular_branch(x)
         v = self.vision_branch_a(img)
         v = self.vision_branch_b(v, u)
+        v = self.vision_branch_c(v)
         uv = torch.concatenate([u, v], dim=-1)
         w = self.main_branch(uv)
         return w
