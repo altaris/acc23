@@ -4,11 +4,11 @@ __docformat__ = "google"
 
 
 TARGETS = [
-    "Allergy_Present",  # Can be calculated directly from other targets
+    "Allergy_Present",
     "Severe_Allergy",
-    "Respiratory_Allergy",  # Can be calculated directly from other targets
-    "Food_Allergy",  # Can be calculated directly from other targets
-    "Venom_Allergy",  # Can be calculated directly from other targets
+    "Respiratory_Allergy",
+    "Food_Allergy",
+    "Venom_Allergy",
     "Type_of_Respiratory_Allergy_ARIA",
     "Type_of_Respiratory_Allergy_CONJ",
     "Type_of_Respiratory_Allergy_GINA",
@@ -39,11 +39,11 @@ N_TARGETS = len(TARGETS)
 
 
 TRUE_TARGETS = [
-    # "Allergy_Present",  # Can be calculated directly from other targets
+    "Allergy_Present",
     "Severe_Allergy",
-    # "Respiratory_Allergy",  # Can be calculated directly from other targets
-    # "Food_Allergy",  # Can be calculated directly from other targets
-    # "Venom_Allergy",  # Can be calculated directly from other targets
+    "Respiratory_Allergy",
+    "Food_Allergy",
+    "Venom_Allergy",
     "Type_of_Respiratory_Allergy_ARIA",
     "Type_of_Respiratory_Allergy_CONJ",
     "Type_of_Respiratory_Allergy_GINA",
@@ -73,7 +73,11 @@ N_TRUE_TARGETS = len(TRUE_TARGETS)
 """Number of true target columns"""
 
 TRUE_TARGETS_COUNT = [
+    1121,
     938,
+    1024,
+    601,
+    23,
     744,
     373,
     693,
@@ -114,28 +118,32 @@ TODO: Don't hardcode this :/
 
 TRUE_TARGETS_IRLBL = [
     0.99999999,
-    1.26075267,
-    2.51474524,
-    1.35353533,
-    1.49125594,
-    2.24401909,
-    1.51534731,
-    1.60616436,
-    1.57382548,
-    3.10596016,
-    27.58822718,
-    22.33332802,
-    24.68420403,
-    9.87368317,
-    37.51998499,
-    10.90697548,
-    19.14285324,
-    8.68518438,
-    25.3513445,
-    20.39129991,
-    6.60563334,
-    72.15379065,
-    55.17643813,
+    1.19509594,
+    1.09472655,
+    1.86522459,
+    48.73910924,
+    1.50672041,
+    3.00536185,
+    1.61760459,
+    1.78219393,
+    2.68181812,
+    1.81098543,
+    1.91952052,
+    1.88087245,
+    3.71192041,
+    32.97057854,
+    26.69046984,
+    29.49999224,
+    11.79999876,
+    44.83998206,
+    13.03488221,
+    22.87754635,
+    10.37962867,
+    30.29728911,
+    24.36955992,
+    7.89436564,
+    86.2307029,
+    65.94113768,
 ]
 """
 IRLbl score of the true targets
@@ -148,27 +156,31 @@ TODO: Don't hardcode this :/
 """
 
 TRUE_TARGETS_PREVALENCE = [
-    0.6917404,
-    0.54867256,
-    0.27507374,
-    0.51106197,
-    0.4638643,
-    0.30825958,
+    0.82669617,
+    0.69174041,
+    0.75516224,
+    0.44321534,
+    0.01696165,
+    0.54867257,
+    0.27507375,
+    0.51106195,
+    0.46386431,
+    0.30825959,
     0.45648968,
-    0.43067846,
+    0.43067847,
     0.43952802,
     0.22271386,
     0.02507375,
     0.03097345,
     0.0280236,
-    0.07005899,
+    0.070059,
     0.01843658,
     0.06342183,
     0.03613569,
     0.07964602,
     0.02728614,
-    0.03392331,
-    0.10471977,
+    0.0339233,
+    0.10471976,
     0.00958702,
     0.01253687,
 ]
