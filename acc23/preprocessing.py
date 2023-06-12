@@ -20,7 +20,8 @@ from sklearn.preprocessing import (
 )
 from sklearn_pandas import DataFrameMapper
 from sklearn_pandas.pipeline import make_transformer_pipeline
-from torchvision.transforms.functional import pad, resize
+from torch import Tensor
+from torchvision.transforms.functional import normalize, pad, resize
 
 from acc23.constants import (
     CLASSES,
@@ -358,33 +359,67 @@ def load_csv(
     return reorder_columns(df)
 
 
-def load_image(path: Union[str, Path]) -> torch.Tensor:
+def load_image(
+    path: Union[str, Path],
+    image_std: Optional[float] = 1,
+    noise_std: Optional[float] = None,
+    positional_encoding_weight: Optional[float] = None,
+) -> Tensor:
     """
     Convenience function to load an PNG or BMP image. The returned image tensor
     has shape `(C, H, W)` (the torch/torchvision convention) and dtype
     `float32`. Here, `C = constants.N_CHANNELS`, and `H = W =
     constants.IMAGE_RESIZE_TO`. In particular, the image is transposed since
     Pillow uses a `(W, H, C)` convention.
+
+    Args:
+        path (Union[str, Path]):
+        image_std (Optional[float]): Set to `None` to skip image normalization,
+            in which case the image is simply scaled to $[0, 1]$
+        noise_std (Optional[float]): Set to `None` to not add Gaussian noise to
+            the image
+        positional_encoding_weight (Optional[float]): Set to `None` to not add
+            positional encoding to the image
     """
     # See https://pillow.readthedocs.io/en/latest/handbook/concepts.html#concept-modes
     fmts = {1: "L", 3: "RGB", 4: "RGBA"}
     if N_CHANNELS not in fmts:
-        raise RuntimeError(
+        raise ValueError(
             "Invalid constant acc23.constants.N_CHANNELS. Supported values "
             "are 1 (to preprocess raw images into greyscale), 3 (RGB), and "
             "4 (RGBA)"
         )
-    img = Image.open(Path(path)).convert(fmts[N_CHANNELS])
-    arr = torch.Tensor(np.asarray(img))  # (W, H, C)
-    arr = arr.permute(2, 1, 0)  # (C, H, W)
-    arr = arr.to(torch.float32)
-    arr /= 255
-    s = 1400
-    _, h, w = arr.shape
-    arr = pad(arr, (0, 0, s - w, s - h), float(arr.mean()))
-    arr = resize(arr, (IMAGE_SIZE, IMAGE_SIZE), antialias=True)
-    # arr = normalize(arr, [0] * N_CHANNELS, [1] * N_CHANNELS)
-    return arr
+    raw = Image.open(Path(path)).convert(fmts[N_CHANNELS])
+    img = torch.tensor(np.asarray(raw), dtype=torch.float32)  # (W, H, C)
+    img = img.permute(2, 1, 0)  # (C, H, W)
+    padded_size = 1400
+    c, h, w = img.shape
+    img = pad(img, (0, 0, padded_size - w, padded_size - h))
+    img = resize(img, (IMAGE_SIZE, IMAGE_SIZE), antialias=True)
+    if image_std:
+        img = normalize(img, [0] * c, [image_std] * c)
+    else:
+        img = (img - img.min()) / (img.max() - img.min() + 1e-5)
+    if noise_std:
+        img += torch.randn_like(img) * noise_std
+    if positional_encoding_weight:
+        pe = positional_encoding(img.shape[1])
+        pe = pe.repeat(c, 1, 1) * positional_encoding_weight
+        # pe = torch.where(img.sum(dim=0) == 0, pe, 0)  # pe only in padding
+        img += pe
+    return img
+
+
+def positional_encoding(image_size: int, k: float = 0.05) -> Tensor:
+    """
+    Returns a `(image_size, image_size)` 2D positional encoding array. Elements
+    are in $[0, 1]$. The factor `k` relates to the initial frequency.
+    """
+    r = torch.tensor(range(image_size, 0, -1)) / image_size
+    a, b = torch.meshgrid(r, r, indexing="ij")
+    x = torch.cos(torch.pi * (1 / (k * a + 1e-5)))
+    y = torch.sin(torch.pi * (1 / (k * b + 1e-5)))
+    return x + y
 
 
 def map_replace(x: np.ndarray, val: Any, rep: Any) -> np.ndarray:
@@ -423,7 +458,7 @@ def pmf_impute(
         https://github.com/mcleonard/pmf-pytorch/blob/master/Probability%20Matrix%20Factorization.ipynb
     """
     n_samples, n_features = x.shape
-    x_true = torch.Tensor(x)
+    x_true = Tensor(x)
     mask = 1 - torch.isnan(x_true).to(torch.float32)
     x_true = torch.where(mask == 0, 0, x_true)
     y = torch.normal(0, sigma_y, size=(latent_dim, n_samples))
@@ -652,48 +687,56 @@ def set_fake_targets(df: pd.DataFrame) -> pd.DataFrame:
     Calculate the 'fake' targets from the true targets. The true target columns
     cannot have nans.
     """
-
     # Some targets have 0 prevalence lôl
     for c in [
         "Type_of_Food_Allergy_Other",
         "Type_of_Food_Allergy_Cereals_&_Seeds",
     ]:
         df[c] = df.get(c, 0)
+    df["Respiratory_Allergy"] = (
+        df.get("Respiratory_Allergy", 0)
+        + df[
+            [
+                "Type_of_Respiratory_Allergy_ARIA",
+                "Type_of_Respiratory_Allergy_CONJ",
+                "Type_of_Respiratory_Allergy_GINA",
+                "Type_of_Respiratory_Allergy_IGE_Pollen_Gram",
+                "Type_of_Respiratory_Allergy_IGE_Pollen_Herb",
+                "Type_of_Respiratory_Allergy_IGE_Pollen_Tree",
+                "Type_of_Respiratory_Allergy_IGE_Dander_Animals",
+                "Type_of_Respiratory_Allergy_IGE_Mite_Cockroach",
+                "Type_of_Respiratory_Allergy_IGE_Molds_Yeast",
+            ]
+        ].sum(axis=1)
+    ).clip(0, 1)
+    df["Food_Allergy"] = (
+        df.get("Food_Allergy", 0)
+        + df[
+            [
+                "Type_of_Food_Allergy_Aromatics",
+                "Type_of_Food_Allergy_Other",
+                "Type_of_Food_Allergy_Cereals_&_Seeds",
+                "Type_of_Food_Allergy_Egg",
+                "Type_of_Food_Allergy_Fish",
+                "Type_of_Food_Allergy_Fruits_and_Vegetables",
+                "Type_of_Food_Allergy_Mammalian_Milk",
+                "Type_of_Food_Allergy_Oral_Syndrom",
+                "Type_of_Food_Allergy_Other_Legumes",
+                "Type_of_Food_Allergy_Peanut",
+                "Type_of_Food_Allergy_Shellfish",
+                "Type_of_Food_Allergy_TPO",
+                "Type_of_Food_Allergy_Tree_Nuts",
+            ]
+        ].sum(axis=1)
+    ).clip(0, 1)
+    df["Venom_Allergy"] = (
+        df.get("Venom_Allergy", 0)
+        + df[
+            [
+                "Type_of_Venom_Allergy_ATCD_Venom",
+                "Type_of_Venom_Allergy_IGE_Venom",
+            ]
+        ].sum(axis=1)
+    ).clip(0, 1)
     df["Allergy_Present"] = df.sum(axis=1).clip(0, 1)
-    df["Respiratory_Allergy"] = df.get("Respiratory_Allergy", 0) + df[
-        [
-            "Type_of_Respiratory_Allergy_ARIA",
-            "Type_of_Respiratory_Allergy_CONJ",
-            "Type_of_Respiratory_Allergy_GINA",
-            "Type_of_Respiratory_Allergy_IGE_Pollen_Gram",
-            "Type_of_Respiratory_Allergy_IGE_Pollen_Herb",
-            "Type_of_Respiratory_Allergy_IGE_Pollen_Tree",
-            "Type_of_Respiratory_Allergy_IGE_Dander_Animals",
-            "Type_of_Respiratory_Allergy_IGE_Mite_Cockroach",
-            "Type_of_Respiratory_Allergy_IGE_Molds_Yeast",
-        ]
-    ].sum(axis=1).clip(0, 1)
-    df["Food_Allergy"] = df.get("Food_Allergy", 0) + df[
-        [
-            "Type_of_Food_Allergy_Aromatics",
-            "Type_of_Food_Allergy_Other",
-            "Type_of_Food_Allergy_Cereals_&_Seeds",
-            "Type_of_Food_Allergy_Egg",
-            "Type_of_Food_Allergy_Fish",
-            "Type_of_Food_Allergy_Fruits_and_Vegetables",
-            "Type_of_Food_Allergy_Mammalian_Milk",
-            "Type_of_Food_Allergy_Oral_Syndrom",
-            "Type_of_Food_Allergy_Other_Legumes",
-            "Type_of_Food_Allergy_Peanut",
-            "Type_of_Food_Allergy_Shellfish",
-            "Type_of_Food_Allergy_TPO",
-            "Type_of_Food_Allergy_Tree_Nuts",
-        ]
-    ].sum(axis=1).clip(0, 1)
-    df["Venom_Allergy"] = df.get("Venom_Allergy", 0) + df[
-        [
-            "Type_of_Venom_Allergy_ATCD_Venom",
-            "Type_of_Venom_Allergy_IGE_Venom",
-        ]
-    ].sum(axis=1).clip(0, 1)
     return reorder_columns(df)
