@@ -53,7 +53,7 @@ class Jackal(BaseMultilabelClassifier):
         self.vision_encoders = nn.ModuleList(
             [
                 VisionEncoder(
-                    in_channels=1,
+                    image_shape=(1, IMAGE_SIZE, IMAGE_SIZE),
                     out_channels=[
                         2,  # 256 -> 128
                         4,  # -> 64

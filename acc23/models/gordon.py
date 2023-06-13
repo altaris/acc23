@@ -62,7 +62,7 @@ class Gordon(BaseMultilabelClassifier):
         # )
         self.vision_branch_a = nn.Identity()
         self.vision_branch_b = VisionEncoder(
-            in_channels=nc,
+            image_shape=image_shape,
             out_channels=[
                 8,  # 512 -> 256
                 8,  # 256 -> 128
