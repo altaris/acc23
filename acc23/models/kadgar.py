@@ -11,7 +11,7 @@ vision encoder integrates CBAM modules from
 __docformat__ = "google"
 
 from itertools import zip_longest
-from typing import Dict, List, Union
+from typing import Dict, List, Tuple, Union
 
 import torch
 from torch import Tensor, nn
@@ -88,7 +88,7 @@ class VisionEncoder(nn.Module):
 
     def __init__(
         self,
-        in_channels: int,
+        image_shape: Tuple[int, int, int],
         out_channels: List[int],
         in_features: int,
         activation: str = "silu",
@@ -106,7 +106,8 @@ class VisionEncoder(nn.Module):
                 after the last residual block, defaults to `False`.
         """
         super().__init__()
-        c = [in_channels] + out_channels
+        nc, s, _ = image_shape
+        c = [nc] + out_channels
         self.encoder_layers = nn.ModuleList(
             [
                 ConvCBAM(c[i - 1], c[i], 3, 1, activation)
@@ -117,11 +118,11 @@ class VisionEncoder(nn.Module):
         self.fusion_layers = nn.ModuleList(
             [
                 AttentionModule(
-                    a,
+                    (a, s // (2 ** (i + 1)), s // (2 ** (i + 1))),
                     in_features,
                     activation,
                 )
-                for a in out_channels[:k]
+                for i, a in enumerate(out_channels[:k])
             ]
         )
 
@@ -162,7 +163,7 @@ class Kadgar(BaseMultilabelClassifier):
             nn.MaxPool2d(5, 2, 2),  # IMAGE_RESIZE_TO = 512 -> 256
         )
         self.vision_branch_b = VisionEncoder(
-            in_channels=N_CHANNELS,
+            image_shape=(N_CHANNELS, IMAGE_SIZE // 2, IMAGE_SIZE // 2),
             out_channels=[
                 8,  # 256 -> 128
                 16,  # -> 64

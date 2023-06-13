@@ -9,9 +9,8 @@ ImageTabNet components from
 __docformat__ = "google"
 
 from itertools import zip_longest
-from typing import List
+from typing import List, Tuple
 
-import torch
 from torch import Tensor, nn
 from transformers.activations import get_activation
 from transformers.models.resnet.modeling_resnet import (
@@ -72,13 +71,17 @@ from transformers.models.resnet.modeling_resnet import (
 class AttentionModule(nn.Module):
     """See Figure 2 of the paper"""
 
+    image_size: int
     block_1: nn.Module
     block_2: nn.Module
     conv: nn.Module
     linear: nn.Module
 
     def __init__(
-        self, in_channels: int, in_features: int, activation: str = "silu"
+        self,
+        image_shape: Tuple[int, int, int],
+        in_features: int,
+        activation: str = "silu",
     ) -> None:
         """
         Args:
@@ -86,26 +89,30 @@ class AttentionModule(nn.Module):
             in_features (int): Dimension of the output of tabnet
             activation (str): Defaults to silu
         """
+        nc, self.image_size, _ = image_shape
         super().__init__()
         self.block_1 = nn.Sequential(
-            nn.Conv2d(in_channels, in_channels, 1, 1, 0, bias=False),
+            nn.Conv2d(nc, nc, 1, 1, 0, bias=False),
             nn.Softmax(dim=1),
         )
         self.block_2 = nn.Sequential(
-            nn.Conv2d(in_channels, in_channels, 1, 1, 0, bias=False),
-            nn.BatchNorm2d(in_channels),
+            nn.Conv2d(nc, nc, 1, 1, 0, bias=False),
+            nn.LayerNorm([nc, self.image_size, self.image_size]),
             get_activation(activation),
         )
         # **Linear** projection
-        self.linear = nn.Linear(in_features, in_channels, bias=False)
-        self.conv = nn.Conv2d(in_channels, in_channels, 1, 1, 0, bias=False)
+        self.linear = nn.Linear(in_features, nc, bias=False)
+        self.conv = nn.Conv2d(nc, nc, 1, 1, 0, bias=False)
 
     # pylint: disable=missing-function-docstring
     def forward(self, x: Tensor, h: Tensor, *_, **__) -> Tensor:
         u = self.block_1(x) * x
         u = self.block_2(u)
         v = self.linear(h)
-        v = torch.stack([v] * u.shape[2] * u.shape[3], dim=-1).reshape(u.shape)
+        # v = torch.stack([v] * u.shape[2] * u.shape[3],
+        # dim=-1).reshape(u.shape)
+        v = v.unsqueeze(-1).unsqueeze(-1)
+        v = v.repeat((1, 1, self.image_size, self.image_size))
         w = u + v  # add v along the channels of every location ("pixel") of u
         w = self.conv(w)
         return x + w
@@ -125,7 +132,7 @@ class VisionEncoder(nn.Module):
 
     def __init__(
         self,
-        in_channels: int,
+        image_shape: Tuple[int, int, int],
         out_channels: List[int],
         in_features: int,
         activation: str = "silu",
@@ -143,7 +150,8 @@ class VisionEncoder(nn.Module):
                 after the last residual block, defaults to `False`.
         """
         super().__init__()
-        c = [in_channels] + out_channels
+        nc, s, _ = image_shape
+        c = [nc] + out_channels
         config = ResNetConfig(layer_type="basic", hidden_act=activation)
         self.encoder_layers = nn.ModuleList(
             [
@@ -159,11 +167,11 @@ class VisionEncoder(nn.Module):
         self.fusion_layers = nn.ModuleList(
             [
                 AttentionModule(
-                    a,
+                    (a, s // (2 ** (i + 1)), s // (2 ** (i + 1))),
                     in_features,
                     activation,
                 )
-                for a in out_channels[:k]
+                for i, a in enumerate(out_channels[:k])
             ]
         )
 

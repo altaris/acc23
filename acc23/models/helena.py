@@ -72,7 +72,7 @@ class Helena(BaseMultilabelClassifier):
             nn.ReLU(),
         )
         self.vision_encoder_b = VisionEncoder(
-            in_channels=8,
+            image_shape=(8, IMAGE_SIZE // 2, IMAGE_SIZE // 2),
             out_channels=[
                 # 8,  # 512 -> 256
                 8,  # 256 -> 128
