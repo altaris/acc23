@@ -6,125 +6,15 @@ __docformat__ = "google"
 
 import json
 from pathlib import Path
-from typing import Optional, Tuple, Union
+from typing import Union
 
 import pandas as pd
 import requests
-import torch
 from loguru import logger as logging
-from rich.progress import track
-from sklearn.metrics import (
-    accuracy_score,
-    f1_score,
-    precision_score,
-    recall_score,
-)
-from torch import Tensor, nn
-from torch.utils.data import DataLoader
+from torch import Tensor
 
-from acc23.constants import TARGETS, TRUE_TARGETS
-from acc23.dataset import ACCDataset, ImageTransform_t
-from acc23.preprocessing import load_csv, reorder_columns, set_fake_targets
-
-
-def evaluate_on_dataset(
-    model: nn.Module,
-    data: Union[str, Path, pd.DataFrame],
-    image_dir_path: Union[str, Path],
-    image_transform: Optional[ImageTransform_t] = None,
-    load_csv_kwargs: Optional[dict] = None,
-    batch_size: int = 32,
-) -> pd.DataFrame:
-    """Simply evaluates a model on a dataset"""
-    ds = ACCDataset(data, image_dir_path, image_transform, load_csv_kwargs)
-    dl = DataLoader(ds, batch_size=batch_size)
-    with torch.no_grad():
-        y = []
-        for x, _, img in track(dl, "Evaluating..."):
-            out = model(x, img)
-            y.append(out[0] if isinstance(out, tuple) else out)
-    return output_to_dataframe(torch.cat(y))
-
-
-def evaluate_on_test_dataset(
-    model: nn.Module,
-    csv_file_path: Union[str, Path],
-    image_dir_path: Union[str, Path],
-    image_transform: Optional[ImageTransform_t] = None,
-    load_csv_kwargs: Optional[dict] = None,
-    batch_size: int = 32,
-) -> pd.DataFrame:
-    """
-    Evaluates a model on a test dataset, and returns a submittable dataframe
-    (with all the target columns and the `trustii_id` column). The dataset at
-    `csv_file_path` is assumed to have a `trustii_id` column.
-
-    Make sure that the input csv file is **NOT** preprocessed.
-    """
-    df = evaluate_on_dataset(
-        model,
-        csv_file_path,
-        image_dir_path,
-        image_transform,
-        load_csv_kwargs,
-        batch_size,
-    )
-    raw = pd.read_csv(csv_file_path)
-    df["trustii_id"] = raw["trustii_id"]
-    df = df[["trustii_id"] + TARGETS]  # Columns order
-    return df
-
-
-def evaluate_on_train_dataset(
-    model: nn.Module,
-    csv_file_path: Union[str, Path],
-    image_dir_path: Union[str, Path],
-    image_transform: Optional[ImageTransform_t] = None,
-    load_csv_kwargs: Optional[dict] = None,
-    batch_size: int = 32,
-) -> Tuple[pd.DataFrame, pd.DataFrame]:
-    """
-    Evaluates a model on a training dataset. The dataset is assumed to have all
-    target columns. Also returns a dataframe containing various performance
-    metrics on true target predictions.
-    """
-    df_pred = evaluate_on_dataset(
-        model,
-        csv_file_path,
-        image_dir_path,
-        image_transform,
-        load_csv_kwargs,
-        batch_size,
-    )
-    targets = TARGETS  # Can also use TRUE_TARGETS
-    df_true = load_csv(  # TODO: this is not pretty
-        csv_file_path,
-        preprocess=(load_csv_kwargs or {}).get("preprocess", True),
-        impute=False,
-    )
-    df_true = df_true[targets]
-    # Replace nan targets with predictions
-    df_true = df_true.where(df_true.notna(), df_pred[targets])
-    n = len(df_pred)
-    kw = {"zero_division": 0}
-    metrics = pd.DataFrame(
-        [
-            [
-                df_true[t].sum() / n,
-                df_pred[t].sum() / n,
-                f1_score(df_true[t], df_pred[t], **kw),
-                precision_score(df_true[t], df_pred[t], **kw),
-                recall_score(df_true[t], df_pred[t], **kw),
-                ((1 - df_pred[t]) * (1 - df_true[t])).sum()
-                / (1 - df_true[t]).sum(),
-                accuracy_score(df_true[t], df_pred[t]),
-            ]
-            for t in targets
-        ],
-        columns=["prev_true", "prev_pred", "f1", "prec", "rec", "spec", "acc"],
-        index=targets,
-    )
-    return df_pred, metrics
+from acc23.constants import TRUE_TARGETS
+from acc23.preprocessing import reorder_columns, set_fake_targets
 
 
 def output_to_dataframe(y: Tensor) -> pd.DataFrame:
