@@ -107,7 +107,7 @@ class ACCDataModule(pl.LightningDataModule):
             oversample=True,
         )
         df_p = load_csv(  # TODO: Dehardcode
-            path=self.train_csv_file_path,
+            path=self.test_csv_file_path,
             preprocess=True,
             drop_nan_targets=False,
             impute=True,
