@@ -361,7 +361,7 @@ def load_csv(
 
 def load_image(
     path: Union[str, Path],
-    image_std: Optional[float] = 1,
+    image_std: Optional[float] = None,
     noise_std: Optional[float] = None,
     positional_encoding_weight: Optional[float] = None,
 ) -> Tensor:
