@@ -6,6 +6,7 @@ from typing import Literal, Optional, Tuple
 
 import torch
 from torch import Tensor, nn
+from transformers.activations import get_activation
 
 from acc23.models.layers import linear_chain
 
@@ -46,7 +47,7 @@ class CrossModalTransformerEncoderLayer(nn.Module):
     method: Literal["a", "b", "c", "f"]
     mhas: nn.ModuleList
     mlp: nn.Module
-    norm: nn.Module
+    norms: nn.ModuleList
 
     def __init__(
         self,
@@ -54,7 +55,7 @@ class CrossModalTransformerEncoderLayer(nn.Module):
         embed_dim: int,
         num_heads: int,
         hidden_dim: Optional[int] = None,
-        dropout: float = 0.0,
+        dropout: float = 0.1,
         activation: str = "gelu",
     ) -> None:
         """
@@ -88,46 +89,59 @@ class CrossModalTransformerEncoderLayer(nn.Module):
         """
         super().__init__()
         self.method = method
-        hidden_dim = hidden_dim or embed_dim
+        hidden_dim = hidden_dim or 2 * embed_dim
         if method == "a":
             self.mhas = nn.ModuleList(
+                [nn.MultiheadAttention(embed_dim, num_heads, dropout=dropout)]
+            )
+            self.norms = nn.ModuleList(
                 [
-                    ResidualMultiheadAttention(
-                        embed_dim, num_heads, dropout=dropout
-                    )
+                    nn.LayerNorm(embed_dim),
+                    nn.LayerNorm(embed_dim),
                 ]
             )
-            self.norm = nn.LayerNorm(embed_dim)
             self.mlp = linear_chain(
                 embed_dim, [hidden_dim, embed_dim], activation
             )
         elif method == "b":
             self.mhas = nn.ModuleList(
                 [
-                    ResidualMultiheadAttention(
+                    nn.MultiheadAttention(
                         2 * embed_dim, num_heads, dropout=dropout
                     )
                 ]
             )
-            self.norm = nn.LayerNorm(2 * embed_dim)
+            self.norms = nn.ModuleList(
+                [
+                    nn.LayerNorm(2 * embed_dim),
+                    nn.LayerNorm(2 * embed_dim),
+                ]
+            )
             self.mlp = linear_chain(
                 2 * embed_dim, [hidden_dim, embed_dim], activation
             )
         elif method in ["c", "f"]:
             self.mhas = nn.ModuleList(
                 [
-                    ResidualMultiheadAttention(
+                    nn.MultiheadAttention(
                         embed_dim, num_heads, dropout=dropout
                     ),
-                    ResidualMultiheadAttention(
+                    nn.MultiheadAttention(
                         embed_dim, num_heads, dropout=dropout
                     ),
-                    ResidualMultiheadAttention(
+                    nn.MultiheadAttention(
                         2 * embed_dim, num_heads, dropout=dropout
                     ),
                 ]
             )
-            self.norm = nn.LayerNorm(2 * embed_dim)
+            self.norms = self.norms = nn.ModuleList(
+                [
+                    nn.LayerNorm(embed_dim),
+                    nn.LayerNorm(embed_dim),
+                    nn.LayerNorm(2 * embed_dim),
+                    nn.LayerNorm(2 * embed_dim),
+                ]
+            )
             self.mlp = linear_chain(
                 2 * embed_dim, [hidden_dim, embed_dim], activation
             )
@@ -144,40 +158,44 @@ class CrossModalTransformerEncoderLayer(nn.Module):
         Forward if the attention part follows cross-modal attention method a,
         aka. early summation.
         """
-        uv, mha = u + v, self.mhas[0]
-        w = mha(uv, uv, uv)
-        return self.mlp(self.norm(w)) + w
+        a = u + v
+        b = self.norms[0](a)
+        c = self.mhas[0](b, b, b)[0] + a
+        return self.mlp(self.norms[1](c)) + c
 
     def _forward_b(self, u: Tensor, v: Tensor, *_, **__) -> Tensor:
         """
         Forward if the attention part follows cross-modal attention method b,
         aka. early concatenation.
         """
-        uv, mha = torch.concat([u, v], dim=-1), self.mhas[0]
-        w = mha(uv, uv, uv)
-        return self.mlp(self.norm(w))
+        a = torch.concat([u, v], dim=-1)
+        b = self.norms[0](a)
+        c = self.mhas[0](b, b, b)[0] + a
+        return self.mlp(self.norms[1](c))
 
     def _forward_c(self, u: Tensor, v: Tensor, *_, **__) -> Tensor:
         """
         Forward if the attention part follows cross-modal attention method c,
         aka. hierarchical (multi-stream to one).
         """
-        mha_u, mha_v, mha_ab = self.mhas[0], self.mhas[1], self.mhas[2]
-        a, b = mha_u(u, u, u), mha_v(v, v, v)
-        uv, ab = torch.concat([u, v], dim=-1), torch.concat([a, b], dim=-1)
-        w = mha_ab(ab, ab, ab) + uv
-        return self.mlp(self.norm(w))
+        a, b = self.norms[0](u), self.norms[1](v)
+        c, d = self.mhas[0](a, a, a)[0] + u, self.mhas[1](b, b, b)[0] + v
+        e = torch.concat([c, d], dim=-1)
+        f = self.norms[2](e)
+        g = self.mhas[2](f, f, f)[0] + e
+        return self.mlp(self.norms[3](g))
 
     def _forward_f(self, u: Tensor, v: Tensor, *_, **__) -> Tensor:
         """
         Forward if the attention part follows cross-modal attention method f,
         aka. cross-attention to concatenation.
         """
-        mha_u, mha_v, mha_ab = self.mhas[0], self.mhas[1], self.mhas[2]
-        a, b = mha_u(v, u, u), mha_v(u, v, v)
-        uv, ab = torch.concat([u, v], dim=-1), torch.concat([a, b], dim=-1)
-        w = mha_ab(ab, ab, ab) + uv
-        return self.mlp(self.norm(w))
+        a, b = self.norms[0](u), self.norms[1](v)
+        c, d = self.mhas[0](b, a, a)[0] + u, self.mhas[1](a, b, b)[0] + v
+        e = torch.concat([c, d], dim=-1)
+        f = self.norms[2](e)
+        g = self.mhas[2](f, f, f)[0] + e
+        return self.mlp(self.norms[3](g))
 
     def forward(self, u: Tensor, v: Tensor, *_, **__) -> Tensor:
         """
@@ -228,7 +246,6 @@ class CrossModalVisionTransformer(nn.Module):
         patch_size: int,
         input_shape: Tuple[int, int, int],
         embed_dim: int,
-        hidden_dim: int,
         out_features: int,
         num_transformers: int,
         num_heads: int,
@@ -241,7 +258,6 @@ class CrossModalVisionTransformer(nn.Module):
             patch_size (int):
             input_shape (Tuple[int, int, int]):
             embed_dim (int):
-            hidden_dim (int):
             out_features (int):
             num_transformers (int):
             num_heads (int):
@@ -252,11 +268,11 @@ class CrossModalVisionTransformer(nn.Module):
             activation (str): Defaults to `gelu`
         """
         super().__init__()
-        c, s, _ = input_shape
+        nc, s, _ = input_shape
         np = (s // patch_size) ** 2
         self.patch_size = patch_size
         self.projection = nn.Linear(
-            c * patch_size * patch_size,
+            nc * patch_size * patch_size,
             embed_dim,
             bias=False,
         )
@@ -266,7 +282,6 @@ class CrossModalVisionTransformer(nn.Module):
                     method=method,
                     embed_dim=embed_dim,
                     num_heads=num_heads,
-                    hidden_dim=hidden_dim,
                     dropout=dropout,
                     activation=activation,
                 )
@@ -299,44 +314,6 @@ class CrossModalVisionTransformer(nn.Module):
         return y
 
 
-class ResidualMultiheadAttention(nn.Module):
-    """
-    A multihead self-attention with early layer normalization and an overall
-    skip connection. Mathematically:
-    $$Z = \\mathrm{MHA}(q', k', v') + \\frac{q + k + v}{3}$$
-    where $\\mathrm{MHA}$ is the multihead attention module, where $q'$ is the
-    layer normalization of $q$, and likewise for $k$ and $v$
-    """
-
-    mha: nn.Module
-    norm_k: nn.Module
-    norm_q: nn.Module
-    norm_v: nn.Module
-
-    def __init__(
-        self,
-        embed_dim: int,
-        num_heads: int,
-        **kwargs,
-    ) -> None:
-        super().__init__()
-        self.mha = nn.MultiheadAttention(embed_dim, num_heads, **kwargs)
-        self.norm_k = nn.LayerNorm(embed_dim)
-        self.norm_q = nn.LayerNorm(embed_dim)
-        self.norm_v = nn.LayerNorm(embed_dim)
-
-    # pylint: disable=missing-function-docstring
-    def forward(self, query: Tensor, key: Tensor, value: Tensor) -> Tensor:
-        a, _ = self.mha(
-            self.norm_q(query),
-            self.norm_k(key),
-            self.norm_v(value),
-            need_weights=False,
-        )
-        b = (query + key + value) / 3
-        return a + b
-
-
 class VisionTransformer(nn.Module):
     """
     Vision transformer of
@@ -366,7 +343,7 @@ class VisionTransformer(nn.Module):
         out_dim: int,
         num_transformers: int,
         num_heads: int,
-        mlp_dropout: float = 0.1,
+        dropout: float = 0.1,
         activation: str = "gelu",
     ) -> None:
         """
@@ -377,10 +354,7 @@ class VisionTransformer(nn.Module):
             out_dim (int):
             num_transformers (int):
             num_heads (int):
-            method (Literal["a", "b", "c", "f"]): Cross modal transformer
-                method (see `CrossModalTransformerEncoderLayer`). Defaults to
-                `a`
-            dropout (float): Defaults to `0.0`
+            dropout (float): Defaults to `0.1`
             activation (str): Defaults to `gelu`
         """
         super().__init__()
@@ -397,9 +371,9 @@ class VisionTransformer(nn.Module):
                 nn.TransformerEncoderLayer(
                     d_model=embed_dim,
                     nhead=num_heads,
-                    dim_feedforward=embed_dim,
+                    dim_feedforward=2 * embed_dim,
                     activation=activation,
-                    dropout=0.0,
+                    dropout=dropout,
                 )
                 for _ in range(num_transformers)
             ]
@@ -408,9 +382,7 @@ class VisionTransformer(nn.Module):
             nn.LayerNorm(embed_dim),
             nn.Linear(embed_dim, out_dim),
         )
-        self.dropout = (
-            nn.Dropout(mlp_dropout) if mlp_dropout > 0 else nn.Identity()
-        )
+        self.dropout = nn.Dropout(dropout) if dropout > 0 else nn.Identity()
         self.class_token = nn.Parameter(torch.randn(embed_dim))
         self.pos_embed = nn.Parameter(torch.randn(np + 1, embed_dim))
 
