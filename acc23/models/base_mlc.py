@@ -3,6 +3,7 @@ __docformat__ = "google"
 
 from typing import Any, Dict, Optional
 
+import numpy as np
 import pytorch_lightning as pl
 import torch
 from loguru import logger as logging
@@ -24,7 +25,7 @@ class BaseMultilabelClassifier(pl.LightningModule):
     """Base class for multilabel classifiers (duh)"""
 
     # pylint: disable=unused-argument
-    def __init__(self, lr: float = 1e-3) -> None:
+    def __init__(self, lr: float = 1e-4) -> None:
         super().__init__()
         self.save_hyperparameters()
 
@@ -34,9 +35,9 @@ class BaseMultilabelClassifier(pl.LightningModule):
             lr=self.hparams["lr"],
             weight_decay=1e-3,
         )
-        # scheduler = optim.lr_scheduler.ReduceLROnPlateau(
-        #     optimizer, mode="min", factor=0.2, patience=20, min_lr=5e-5
-        # # )
+        scheduler = optim.lr_scheduler.ReduceLROnPlateau(
+            optimizer, mode="min", factor=0.5, patience=10
+        )
         # scheduler = optim.lr_scheduler.OneCycleLR(
         #     optimizer,
         #     max_lr=1e-2,
@@ -45,8 +46,8 @@ class BaseMultilabelClassifier(pl.LightningModule):
         # )
         return {
             "optimizer": optimizer,
-            # "lr_scheduler": scheduler,
-            # "monitor": "val/loss",
+            "lr_scheduler": scheduler,
+            "monitor": "val/loss",
         }
 
     def evaluate(
@@ -71,8 +72,7 @@ class BaseMultilabelClassifier(pl.LightningModule):
         `<stage>/prec`, `<stage>/rec`, `<stage>/f1`, and `<stage>/extra`
         respectively.
         """
-        out = self(x, img)  # out may be y_pred or (y_pred, extra loss term)
-        y_pred, extra_loss = out if isinstance(out, tuple) else (out, 0.0)
+        y_pred = self(x, img)
         y_true = concat_tensor_dict(y)
         y_true = torch.where(  # Replace NaN targets
             y_true.isnan(),
@@ -97,7 +97,6 @@ class BaseMultilabelClassifier(pl.LightningModule):
             distribution_balanced_loss_with_logits(y_pred, y_true, prev_true)
             # bp_mll_loss(y_pred.sigmoid(), y_true)
             # - continuous_f1_score(y_pred.sigmoid(), y_true)
-            + extra_loss
         )
 
         if stage is not None:
@@ -118,7 +117,6 @@ class BaseMultilabelClassifier(pl.LightningModule):
             self.log_dict(
                 {
                     f"{stage}/acc": accuracy_score(kw["y_true"], kw["y_pred"]),
-                    f"{stage}/extra": extra_loss,
                     f"{stage}/ham": hamming_loss(kw["y_true"], kw["y_pred"]),
                     f"{stage}/prec": precision_score(**kw),
                     f"{stage}/rec": recall_score(**kw),
@@ -128,6 +126,11 @@ class BaseMultilabelClassifier(pl.LightningModule):
 
         return loss
 
+    def on_train_start(self):
+        # https://lightning.ai/docs/pytorch/latest/extensions/logging.html#logging-hyperparameters
+        keys = ["val/loss", "val/ham", "val/f1", "val/prec", "val/rec"]
+        self.logger.log_hyperparams(self.hparams, {k: np.nan for k in keys})
+
     def training_step(self, batch, *_, **__):
         x, y, img = batch
         return self.evaluate(x, y, img, "train")
@@ -135,6 +138,14 @@ class BaseMultilabelClassifier(pl.LightningModule):
     def validation_step(self, batch, *_, **__):
         x, y, img = batch
         return self.evaluate(x, y, img, "val")
+
+    def test_step(self, batch, *_, **__):
+        x, y, img = batch
+        return self.evaluate(x, y, img, "test")
+
+    def predict_step(self, batch, *_, **__):
+        x, _, img = batch
+        return self(x, img)
 
 
 class ModuleWeightsHistogram(pl.Callback):

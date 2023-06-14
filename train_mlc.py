@@ -1,161 +1,88 @@
 # pylint: disable=missing-function-docstring
-# pylint: disable=unnecessary-lambda-assignment
+# pylint: disable=wildcard-import
+# pylint: disable=unused-wildcard-import
 """Script to train acc23's current model implementation"""
 
 from datetime import datetime
-from functools import partial
-from typing import Optional, Tuple
+import pandas as pd
 
 import pytorch_lightning as pl
+from pytorch_lightning.utilities import rank_zero_only
 from loguru import logger as logging
-from torch import Tensor
-from torch.utils.data import DataLoader
+import torch
+from acc23.constants import TARGETS
 
-from acc23.autoencoders import AE, VAE
-from acc23.dataset import ACCDataset, ImageTransform_t
-from acc23.models import Norway as Model  # SET CORRECT MODEL CLASS HERE
-from acc23.models.base_mlc import (
-    BaseMultilabelClassifier,
-    ModuleWeightsHistogram,
-)
-from acc23.postprocessing import (
-    evaluate_on_test_dataset,
-    evaluate_on_train_dataset,
-)
-from acc23.utils import last_checkpoint_path, train_model
+from acc23.dataset import ACCDataModule
+from acc23.models import *
+from acc23.postprocessing import output_to_dataframe
+from acc23.utils import train_model
 
 
+@rank_zero_only
 def evaluate_model(
-    model: BaseMultilabelClassifier,
-    image_transform: Optional[ImageTransform_t],
+    model: pl.LightningModule,
+    datamodule: pl.LightningDataModule,
 ) -> None:
-    name = model.__class__.__name__.lower()
-    dt = datetime.now().strftime("%Y-%m-%d-%H-%M")
-    df = evaluate_on_test_dataset(
-        model,
-        "data/test.csv",
-        "data/images",
-        image_transform,
+    trainer = pl.Trainer(
+        callbacks=[pl.callbacks.RichProgressBar()],
+        devices=1,
+        num_nodes=1,
     )
-    path = f"out/{dt}.{name}.test.csv"
+    trainer.test(model, datamodule=datamodule)
+    results = trainer.predict(model, datamodule=datamodule)
+
+    df = output_to_dataframe(torch.cat(results)).astype(int)
+    raw = pd.read_csv("data/test.csv")
+    df["trustii_id"] = raw["trustii_id"]
+    df = df[["trustii_id"] + TARGETS]  # Columns order
+
+    dt = datetime.now().strftime("%Y-%m-%d-%H-%M")
+    name = model.__class__.__name__.lower()
+    path = f"test.out/{dt}.{name}.test.csv"
     df.to_csv(path, index=False)
     logging.info("Saved test set prediction to '{}'", path)
-    df, metrics = evaluate_on_train_dataset(
-        model,
-        "data/train.csv",
-        "data/images",
-        image_transform,
-    )
-    logging.debug(
-        "Metrics on train set:\n{}",
-        metrics,
-    )
-    logging.debug(
-        "Metrics on train set, basic statistics:\n{}",
-        metrics.describe().drop(
-            columns=["prev_true", "prev_pred"],
-            errors="ignore",
-        ),
-    )
-    path = f"out/{dt}.{name}.train.csv"
-    df.to_csv(path, index=False)
-    logging.info("Saved train set prediction to '{}'", path)
-    path = f"out/{dt}.{name}.train.metrics.csv"
-    metrics = metrics.reset_index(names=["target"])
-    metrics.to_csv(path, index=True)
-    logging.info("Saved train set prediction metrics to '{}'", path)
-
-
-def make_dataset(
-    image_transform: Optional[ImageTransform_t],
-) -> Tuple[DataLoader, DataLoader]:
-    ds = ACCDataset(
-        "data/train.csv",
-        "data/images",
-        image_transform,
-        load_csv_kwargs={
-            "preprocess": True,
-            "drop_nan_targets": True,
-            "impute": True,
-            "impute_targets": False,
-            "oversample": True,
-        },
-    )
-    return ds.train_test_split_dl(
-        ratio=0.9,
-        dataloader_kwargs={
-            "batch_size": 64,
-            "pin_memory": True,
-            "num_workers": 16,
-        },
-        oversample=False,
-    )
-
-
-def make_model() -> (
-    Tuple[BaseMultilabelClassifier, Optional[ImageTransform_t]]
-):
-    name = Model.__name__.lower()
-    logging.info("Training model '{}'", name)
-
-    if name == "dexter":
-
-        def _ae_encode(ae: AE, x: Tensor) -> Tensor:
-            z = ae.encode(x.unsqueeze(0)).flatten()
-            return z
-
-        ckpt = last_checkpoint_path(
-            "out/tb_logs/autoencoder/version_1/checkpoints/"
-        )
-        logging.info("Loading autoencoder from", ckpt)
-        ae = AE.load_from_checkpoint(ckpt)
-        ae.eval()
-        ae.requires_grad_(False)
-        image_transform = partial(_ae_encode, ae)
-        model = Model(ae_latent_dim=ae.hparams["latent_dim"])
-
-    elif name == "farzad":
-
-        def _vae_encode(vae: VAE, x: Tensor) -> Tensor:
-            z = vae.encode(x.unsqueeze(0)).sample().flatten()
-            return z
-
-        ckpt = last_checkpoint_path("out/tb_logs/vae/version_2/checkpoints/")
-        logging.info("Loading vae from", ckpt)
-        vae = VAE.load_from_checkpoint(ckpt)
-        vae.eval()
-        vae.requires_grad_(False)
-        image_transform = partial(_vae_encode, vae)
-        model = Model(vae_latent_dim=vae.hparams["latent_dim"])
-
-    else:
-        model, image_transform = Model(), None
-
-    return model, image_transform
 
 
 def main():
-    model, image_transform = make_model()
-    train, val = make_dataset(image_transform)
+    model = Norway()  # SET CORRECT MODEL CLASS HERE
+    datamodule = ACCDataModule()
     model = train_model(
         model,
-        train,
-        val,
+        datamodule,
         root_dir="out",
         early_stopping_kwargs={
             "check_finite": True,
             "mode": "min",
             "monitor": "val/loss",
-            "patience": 10,
+            "patience": 20,
         },
-        additional_callbacks=[
-            # pl.callbacks.LearningRateFinder(num_training_steps=400),
-            pl.callbacks.LearningRateMonitor(logging_interval="epoch"),
-            # ModuleWeightsHistogram(),
-        ],
         max_epochs=100,
     )
-    evaluate_model(model, image_transform)
+    evaluate_model(model, datamodule)
+
+    # df, metrics = evaluate_on_train_dataset(
+    #     model,
+    #     "data/train.csv",
+    #     "data/images",
+    # )
+    # logging.debug(
+    #     "Metrics on train set:\n{}",
+    #     metrics,
+    # )
+    # logging.debug(
+    #     "Metrics on train set, basic statistics:\n{}",
+    #     metrics.describe().drop(
+    #         columns=["prev_true", "prev_pred"],
+    #         errors="ignore",
+    #     ),
+    # )
+    # path = f"out/{dt}.{name}.train.csv"
+    # df.to_csv(path, index=False)
+    # logging.info("Saved train set prediction to '{}'", path)
+    # path = f"out/{dt}.{name}.train.metrics.csv"
+    # metrics = metrics.reset_index(names=["target"])
+    # metrics.to_csv(path, index=True)
+    # logging.info("Saved train set prediction metrics to '{}'", path)
 
 
 if __name__ == "__main__":

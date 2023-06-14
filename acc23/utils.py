@@ -3,10 +3,9 @@ __docformat__ = "google"
 
 import os
 import re
-from contextlib import contextmanager
 from glob import glob
 from pathlib import Path
-from typing import Any, Callable, List, Optional, Union
+from typing import List, Optional, Union
 
 import pytorch_lightning as pl
 import torch
@@ -52,109 +51,9 @@ def last_checkpoint_path(ckpt_dir: Union[str, Path]) -> Path:
     return Path(d[sm])
 
 
-@contextmanager
-def pause_model(model: torch.nn.Module):
-    """
-    Sets the model to eval mode (`model.train(False)`) and disable gradient
-    tracking on all parameters. Restores everything when exiting the context
-    manager. Yields `None`.
-    """
-    is_training = model.training
-    model.train(False)
-    for parameter in model.parameters():
-        parameter.requires_grad = False
-    try:
-        yield None
-    finally:
-        for parameter in model.parameters():
-            parameter.requires_grad = True
-        model.train(is_training)
-
-
-def pl_module_loader(
-    cls: type, root_dir: Union[str, Path], name: str, version: int = 0
-) -> pl.LightningModule:
-    """
-    Loader for pytorch lightning modules, to be used with
-    `tdt.utils.produces_artifact`.
-    """
-    assert issubclass(cls, pl.LightningModule)
-    if not isinstance(root_dir, Path):
-        root_dir = Path(root_dir)
-    ckpt = last_checkpoint_path(
-        root_dir / "tb_logs" / name / f"version_{version}" / "checkpoints"
-    )
-    logging.debug("Loading checkpoint '{}'", ckpt)
-    module: pl.LightningModule = cls.load_from_checkpoint(str(ckpt))  # type: ignore
-    return module
-
-
-def produces_artifact(
-    loader: Callable,
-    saver: Optional[Callable] = None,
-    loader_args: Any = None,
-    loader_kwargs: Optional[dict] = None,
-    saver_args: Any = None,
-    saver_kwargs: Optional[dict] = None,
-) -> Callable:
-    """
-    Calls the loader function and returns the result. If the loader throws an
-    exception, runs the decorated function instead. If a saver method is given,
-    it is run on the results as
-
-    ```py
-    saver(results, *saver_args, **saver_kwargs)
-    ```
-
-    Finally, the results are returned. Here's an example to guard a model
-    training:
-
-    ```py
-    _train = produces_artifact(
-        pl_module_loader,
-        loader_kwargs={
-            "cls": type(model),
-            "root_dir": output_dir,
-            "name": "my_model",
-        },
-    )(train_model)
-    model = _train(model, train, val, root_dir=output_dir)
-    ```
-
-    The signature of `_train` is the same as `tdt.utils.train_model`.
-
-    """
-
-    loader_args = loader_args or []
-    loader_kwargs = loader_kwargs or {}
-    saver_args = saver_args or []
-    saver_kwargs = saver_kwargs or {}
-
-    def _decorator(function: Callable) -> Callable:
-        def _wrapped(*args, **kwargs) -> Any:
-            try:
-                data = loader(*loader_args, **loader_kwargs)  # type: ignore
-                logging.debug(
-                    "Skipped call to guarded method '{}'", function.__name__
-                )
-                return data
-            except TypeError:
-                raise
-            except:
-                results = function(*args, **kwargs)
-                if saver is not None:
-                    saver(results, *saver_args, **saver_kwargs)  # type: ignore
-                return results
-
-        return _wrapped
-
-    return _decorator
-
-
 def train_model(
     model: pl.LightningModule,
-    train_dl: torch.utils.data.DataLoader,
-    val_dl: torch.utils.data.DataLoader,
+    datamodule: pl.LightningDataModule,
     root_dir: Union[str, Path],
     name: Optional[str] = None,
     max_epochs: int = 512,
@@ -173,8 +72,7 @@ def train_model(
     Args:
         model (pl.LightningModule): The model to train. In its
             `validation_step`, the model must log the `val/loss` metric.
-        train_dl (torch.utils.data.DataLoader): The train dataloader.
-        val_dl (torch.utils.data.DataLoader): The validation dataloader.
+        datamodule (pl.LightningDataModule):
         root_dir (Union[str, Path]): The root dir of the trainer. The
             tensorboard logs will be stored under `root_dir/tb_logs/name` and
             the CSV logs under `root_dir/csv_logs/name`.
@@ -245,7 +143,7 @@ def train_model(
         max_epochs=max_epochs,
         callbacks=[
             pl.callbacks.EarlyStopping(**early_stopping_kwargs),
-            # pl.callbacks.LearningRateMonitor("epoch"),
+            pl.callbacks.LearningRateMonitor(logging_interval="epoch"),
             pl.callbacks.ModelCheckpoint(
                 mode=early_stopping_kwargs.get("mode", "min"),
                 monitor=early_stopping_kwargs["monitor"],
@@ -262,36 +160,8 @@ def train_model(
         **kwargs,
     )
 
-    trainer.fit(model, train_dl, val_dl)
-
-    ckpt = str(trainer.checkpoint_callback.best_model_path)  # type: ignore
-    logging.debug("Loading best checkpoint '{}'", ckpt)
-    return type(model).load_from_checkpoint(ckpt)  # type: ignore
-
-
-def train_model_guarded(
-    model: pl.LightningModule,
-    train_dl: torch.utils.data.DataLoader,
-    val_dl: torch.utils.data.DataLoader,
-    root_dir: Union[str, Path],
-    name: str,
-    *args,
-    **kwargs,
-) -> pl.LightningModule:
-    """
-    Guarded version of `tdt.utils.train_model`, i.e. if a checkpoint already
-    exists for the model, it is loaded and returned instead of training the
-    model.
-
-    See also:
-        `tdt.utils.produces_artifact`, `tdt.utils.pl_module_loader`
-    """
-    _train = produces_artifact(
-        pl_module_loader,
-        loader_kwargs={
-            "cls": type(model),
-            "root_dir": root_dir,
-            "name": name,
-        },
-    )(train_model)
-    return _train(model, train_dl, val_dl, root_dir, name, *args, **kwargs)
+    trainer.fit(model, datamodule=datamodule)
+    # ckpt = str(trainer.checkpoint_callback.best_model_path)  # type: ignore
+    # logging.debug("Loading best checkpoint '{}'", ckpt)
+    # model = type(model).load_from_checkpoint(ckpt)  # type: ignore
+    return model
