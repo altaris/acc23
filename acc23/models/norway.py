@@ -1,6 +1,6 @@
 """
-ACC23 main multi-classification model: prototype "London". Like Ampere but the
-convolutional branch is a vision transformer
+ACC23 main multi-classification model: prototype "Norway". Like London, but the
+vision transformer is replaced by a co-attention modal vision transformer.
 """
 __docformat__ = "google"
 
@@ -13,15 +13,16 @@ from transformers.activations import get_activation
 from acc23.constants import IMAGE_SIZE, N_CHANNELS, N_FEATURES, N_TRUE_TARGETS
 
 from .base_mlc import BaseMultilabelClassifier
-from .layers import concat_tensor_dict, linear_chain
-from .transformers import VisionTransformer
+from .layers import concat_tensor_dict
+from .transformers import CoAttentionVisionTransformer
 
 
-class London(BaseMultilabelClassifier):
+class Norway(BaseMultilabelClassifier):
     """See module documentation"""
 
     tabular_encoder: nn.Module  # Dense input branch
-    vision_transformer: nn.Module  # Conv. input branch
+    pooling: nn.Module
+    vision_transformer: nn.Module
     main_branch: nn.Module  # Merge branch
 
     def __init__(
@@ -33,59 +34,42 @@ class London(BaseMultilabelClassifier):
             IMAGE_SIZE,
         ),
         out_dim: int = N_TRUE_TARGETS,
-        embed_dim: int = 64,
+        embed_dim: int = 1024,
         patch_size: int = 16,
-        n_transformers: int = 8,
-        n_heads: int = 8,
-        dropout: float = 0.0,
+        n_transformers: int = 16,
+        n_heads: int = 16,
+        dropout: float = 0.23,
         activation: str = "gelu",
     ) -> None:
         super().__init__()
         self.save_hyperparameters()
         nc, s, _ = image_shape
-        self.tabular_encoder = linear_chain(
-            n_features,
-            [embed_dim],
-            activation=activation,
+        self.tabular_encoder = nn.Sequential(
+            nn.Linear(n_features, embed_dim),
+            get_activation(activation),
         )
-        self.vision_transformer = nn.Sequential(
-            nn.MaxPool2d(5, 2, 2),  # 512 -> 256
-            VisionTransformer(
-                patch_size=patch_size,
-                # input_shape=(nc, s, s),
-                input_shape=(nc, s // 2, s // 2),
-                embed_dim=embed_dim,
-                out_dim=embed_dim,
-                num_transformers=n_transformers,
-                num_heads=n_heads,
-                dropout=0.1,
-                activation=activation,
-            ),
-            # ViT(
-            #     image_size=s,
-            #     channels=nc,
-            #     patch_size=patch_size,
-            #     num_classes=embed_dim,
-            #     dim=embed_dim,
-            #     depth=n_transformers,
-            #     heads=n_heads,
-            #     mlp_dim=embed_dim,
-            #     dropout=0,
-            #     emb_dropout=0,
-            # )
+        # self.tabular_encoder = linear_chain(
+        #     n_features,
+        #     [512, embed_dim],
+        #     activation=activation,
+        # )
+        self.pooling = nn.MaxPool2d(5, 2, 2)  # 512 -> 256
+        self.vision_transformer = CoAttentionVisionTransformer(
+            patch_size=patch_size,
+            input_shape=(nc, s // 2, s // 2),
+            embed_dim=embed_dim,
+            out_dim=embed_dim,
+            num_transformers=n_transformers,
+            num_heads=n_heads,
+            dropout=dropout,
+            activation=activation,
         )
         self.main_branch = nn.Sequential(
             nn.Linear(2 * embed_dim, embed_dim),
             get_activation(activation),
-            nn.Dropout1d(dropout) if dropout > 0 else nn.Identity(),
+            nn.Dropout(dropout),
             nn.Linear(embed_dim, out_dim),
         )
-        # self.main_branch = linear_chain(
-        #     2 * embed_dim,
-        #     [embed_dim, out_dim],
-        #     activation=activation,
-        #     last_activation="linear",
-        # )
         self.example_input_array = (
             torch.zeros((32, n_features)),
             torch.zeros((32, nc, s, s)),
@@ -114,7 +98,7 @@ class London(BaseMultilabelClassifier):
         img = img.to(self.device)  # type: ignore
         a = self.tabular_encoder(x)
         b = (
-            self.vision_transformer(img)
+            self.vision_transformer(self.pooling(img), a)
             # if img.max() > 0
             # else torch.zeros_like(a)
         )

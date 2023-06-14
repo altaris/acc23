@@ -10,50 +10,29 @@ from typing import Dict, Union
 
 import torch
 from torch import Tensor, nn
-from traitlets import Any
 
 from acc23.constants import N_FEATURES, N_TRUE_TARGETS
 
-from .layers import (
-    ResNetLinearLayer,
-    concat_tensor_dict,
-)
 from .base_mlc import BaseMultilabelClassifier
+from .layers import concat_tensor_dict, linear_chain
 
 
 class Dexter(BaseMultilabelClassifier):
     """See module documentation"""
 
-    _module_a: nn.Module  # Input dense branch
-    _module_b: nn.Module  # Merge branch
+    tabular_branch: nn.Module  # Dense input branch
+    main_branch: nn.Module  # Merge branch
 
-    def __init__(
-        self,
-        ae_latent_dim: int,
-        **kwargs: Any,
-    ) -> None:
-        super().__init__(**kwargs)
+    def __init__(self, ae_latent_dim: int = 256) -> None:
+        super().__init__()
         self.save_hyperparameters()
-        self._module_a = nn.Sequential(
-            ResNetLinearLayer(N_FEATURES, 256),
-            ResNetLinearLayer(256, 512),
-            ResNetLinearLayer(512, 512),
-            ResNetLinearLayer(512, 512),
-            ResNetLinearLayer(512, 512),
-            ResNetLinearLayer(512, ae_latent_dim),
+        embed_dim, activation = 512, "gelu"
+        self.tabular_branch = linear_chain(
+            N_FEATURES,
+            [256, 256, embed_dim],
+            activation=activation,
         )
-        self._module_b = nn.Sequential(
-            ResNetLinearLayer(2 * ae_latent_dim, ae_latent_dim),
-            ResNetLinearLayer(ae_latent_dim, ae_latent_dim),
-            ResNetLinearLayer(ae_latent_dim, ae_latent_dim),
-            ResNetLinearLayer(ae_latent_dim, ae_latent_dim),
-            ResNetLinearLayer(ae_latent_dim, 128),
-            ResNetLinearLayer(128, 128),
-            ResNetLinearLayer(128, 128),
-            ResNetLinearLayer(128, 128),
-            ResNetLinearLayer(128, 64),
-            ResNetLinearLayer(64, N_TRUE_TARGETS),
-        )
+        self.main_branch = nn.Linear(embed_dim + ae_latent_dim, N_TRUE_TARGETS)
         self.example_input_array = (
             torch.zeros((32, N_FEATURES)),
             torch.zeros((32, ae_latent_dim)),
@@ -63,7 +42,7 @@ class Dexter(BaseMultilabelClassifier):
     def forward(
         self,
         x: Union[Tensor, Dict[str, Tensor]],
-        img: Tensor,
+        z: Tensor,
         *_,
         **__,
     ) -> Tensor:
@@ -72,14 +51,14 @@ class Dexter(BaseMultilabelClassifier):
             x (Tensor): Tabular data with shape `(N, N_FEATURES)`, where `N` is
                 the batch size, or alternatively, a string dict, where each key
                 is a `(N,)` tensor.
-            img (Tensor): Batch of images, i.e. a tensor of shape
-                `(N, N_CHANNELS, IMAGE_SIZE, IMAGE_SIZE)`
+            z (Tensor): Batch of encoded images, i.e. a tensor of shape
+                `(N, vae_latent_dim)`
         """
         if isinstance(x, dict):
             x = concat_tensor_dict(x)
         x = x.float().to(self.device)  # type: ignore
-        img = img.to(self.device)  # type: ignore
-        a = self._module_a(x)
-        ai = torch.concatenate([a, img], dim=-1)
-        b = self._module_b(ai)
+        z = z.to(self.device)  # type: ignore
+        a = self.tabular_branch(x)
+        az = torch.concatenate([a, z], dim=-1)
+        b = self.main_branch(az)
         return b

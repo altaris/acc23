@@ -34,6 +34,186 @@ def make_patches(imgs: Tensor, patch_size: int) -> Tuple[Tensor, int, int]:
     return imgs, k * k, c * patch_size * patch_size
 
 
+class CoAttentionTransformerEncoderLayer(nn.Module):
+    """
+    Co-attention mechanism of
+
+        Lu, Jiasen, et al. "Vilbert: Pretraining task-agnostic visiolinguistic
+        representations for vision-and-language tasks." Advances in neural
+        information processing systems 32 (2019).
+
+    Note that the attention part uses late normalization as opposed to early
+    normalization.
+    """
+
+    mhas: nn.ModuleList
+    norms: nn.ModuleList
+    drops: nn.ModuleList
+    mlps: nn.ModuleList
+    last: bool
+
+    def __init__(
+        self,
+        embed_dim: int,
+        num_heads: int,
+        hidden_dim: int = 2048,
+        dropout: float = 0.1,
+        activation: str = "gelu",
+        last: bool = False,
+    ) -> None:
+        """
+        Args:
+            embed_dim (int):
+            num_heads (int):
+            hidden_dim (int):
+            dropout (float):
+            activation (str):
+            last (bool): If set to `True`, the right/second/`w` branch is just
+                the identity
+        """
+        super().__init__()
+        self.mhas = nn.ModuleList(
+            [
+                nn.MultiheadAttention(embed_dim, num_heads, dropout)
+                for _ in range(1 if last else 2)  # One module if last, 2 o.w.
+            ],
+        )
+        self.norms = nn.ModuleList(
+            [
+                nn.LayerNorm(embed_dim)
+                for _ in range(1 if last else 2)  # One module if last, 2 o.w.
+            ],
+        )
+        self.drops = nn.ModuleList(
+            [
+                nn.Dropout(dropout)
+                for _ in range(1 if last else 2)  # One module if last, 2 o.w.
+            ],
+        )
+        self.mlps = nn.ModuleList(
+            [
+                nn.Sequential(
+                    nn.Linear(embed_dim, hidden_dim),
+                    get_activation(activation),
+                    nn.Dropout(dropout),
+                    nn.Linear(hidden_dim, embed_dim),
+                    nn.Dropout(dropout),
+                )
+                for _ in range(1 if last else 2)  # One module if last, 2 o.w.
+            ],
+        )
+        self.last = last
+
+    # pylint: disable=missing-function-docstring
+    def forward(self, v: Tensor, w: Tensor) -> Tuple[Tensor, Tensor]:
+        if self.last:
+            mha_v, norm_v = self.mhas[0], self.norms[0]
+            drop_v, mlp_v = self.drops[0], self.mlps[0]
+            a, _ = mha_v(query=v, key=w, value=w, need_weights=False)
+            v = norm_v(a + v)
+            v = drop_v(v)
+            v = mlp_v(v)
+        else:
+            mha_v, mha_w = self.mhas[0], self.mhas[1]
+            norm_v, norm_w = self.norms[0], self.norms[1]
+            drop_v, drop_w = self.drops[0], self.drops[1]
+            mlp_v, mlp_w = self.mlps[0], self.mlps[1]
+            a, _ = mha_v(query=v, key=w, value=w, need_weights=False)
+            b, _ = mha_w(query=w, key=v, value=v, need_weights=False)
+            v, w = norm_v(a + v), norm_w(b + w)
+            v, w = drop_v(v), drop_w(w)
+            v, w = mlp_v(v), mlp_w(w)
+        return v, w
+
+
+class CoAttentionVisionTransformer(nn.Module):
+    """
+    Multimodal vision transformer using the co-attention mechanism of
+
+        Lu, Jiasen, et al. "Vilbert: Pretraining task-agnostic visiolinguistic
+        representations for vision-and-language tasks." Advances in neural
+        information processing systems 32 (2019).
+    """
+
+    patch_size: int
+    projection: nn.Module
+    transformers: nn.ModuleList
+    mlp_head: nn.Module
+    dropout: nn.Module
+
+    class_token: nn.Parameter
+    pos_embed: nn.Parameter
+
+    def __init__(
+        self,
+        patch_size: int,
+        input_shape: Tuple[int, int, int],
+        embed_dim: int,
+        out_dim: int,
+        num_transformers: int,
+        num_heads: int,
+        dropout: float = 0.1,
+        activation: str = "gelu",
+    ) -> None:
+        """
+        Args:
+            patch_size (int):
+            input_shape (Tuple[int, int, int]):
+            embed_dim (int):
+            out_dim (int):
+            num_transformers (int):
+            num_heads (int):
+            dropout (float): Defaults to `0.1`
+            activation (str): Defaults to `gelu`
+        """
+        super().__init__()
+        c, s, _ = input_shape
+        np = (s // patch_size) ** 2
+        self.patch_size = patch_size
+        self.projection = nn.Linear(
+            c * patch_size * patch_size,
+            embed_dim,
+            bias=False,
+        )
+        self.transformers = nn.ModuleList(
+            [
+                CoAttentionTransformerEncoderLayer(
+                    embed_dim=embed_dim,
+                    num_heads=num_heads,
+                    hidden_dim=2 * embed_dim,
+                    dropout=dropout,
+                    activation=activation,
+                    last=(i == num_transformers - 1),
+                )
+                for i in range(num_transformers)
+            ]
+        )
+        self.mlp_head = nn.Sequential(
+            nn.LayerNorm(embed_dim),
+            nn.Linear(embed_dim, out_dim),
+        )
+        self.dropout = nn.Dropout(dropout) if dropout > 0 else nn.Identity()
+        self.class_token = nn.Parameter(torch.randn(embed_dim))
+        self.pos_embed = nn.Parameter(torch.randn(np + 1, embed_dim))
+
+    # pylint: disable=missing-function-docstring
+    def forward(self, img: Tensor, u: Tensor) -> Tensor:
+        x, n_patches, _ = make_patches(img, self.patch_size)  # (b, np, N)
+        # Layers only act on last dim(s) =)
+        x = self.projection(x)  # (b, np, ed)
+        ct = self.class_token.repeat(x.shape[0], 1, 1)  # (b, 1, ed)
+        z = torch.concat([ct, x], dim=1)  # (b, np + 1, ed)
+        z = z + self.pos_embed  # (b, np + 1, ed)
+        z = self.dropout(z)
+        z = z.transpose(0, 1)  # (np + 1, b, ed)
+        u = u.repeat(n_patches + 1, 1, 1)
+        for transformer in self.transformers:
+            z, u = transformer(z, u)
+        z = z[0]  # (b, ed)
+        y = self.mlp_head(z)
+        return y
+
+
 class CrossModalTransformerEncoderLayer(nn.Module):
     """
     A transformer encoder layer that uses cross-modal multihead attention,
@@ -306,9 +486,8 @@ class CrossModalVisionTransformer(nn.Module):
         z = z + self.pos_embed  # (b, np + 1, ed)
         z = self.dropout(z)
         z = z.transpose(0, 1)  # (np + 1, b, ed)
-        uu = u.repeat(n_patches + 1, 1, 1)
         for transformer in self.transformers:
-            z = transformer(z, uu)
+            z = transformer(z, u.repeat(n_patches + 1, 1, 1))
         z = z[0]  # (b, ed)
         y = self.mlp_head(z)
         return y

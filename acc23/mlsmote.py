@@ -124,8 +124,9 @@ def mlsmote(
     df: pd.DataFrame,
     targets: List[str],
     n_neighbors: int = 10,
-    threshold: Union[int, Literal["mean"]] = "mean",
     sampling_factor: int = 5,
+    apply_remedial: bool = False,
+    remedial_threshold: Union[int, Literal["mean"]] = "mean",
 ) -> pd.DataFrame:
     """
     REMEDIAL-MLSMOTE oversampling. Note that object-type features are ignored
@@ -136,18 +137,20 @@ def mlsmote(
         df (pd.DataFrame):
         targets (List[str]):
         n_neighbors (int):
-        threshold (Union[int, Literal["mean"]] = "mean"): See `remedial`
         sampling_factor (int): In the REMEDIAL stage, for each minority bag
             `b`, will generate `sampling_factor * len(b)` synthetic samples:
             `sampling_factor * len(b)` samples are ransomly selected (with
             repetition) to serve as basis. In particular, not every sample of
             `b` may serve as basis
+        apply_remedial (bool): Whether to apply REMEDIAL before oversampling
+        remedial_threshold (Union[int, Literal["mean"]]): See `remedial`
 
     Warning:
         Numerical columns must not contain `NaN`s
     """
     df_old = df.copy()
-    df = remedial(df, targets, threshold)
+    if apply_remedial:
+        df = remedial(df, targets, remedial_threshold)
     obj_columns = [c for c, d in df.dtypes.items() if str(d) == "object"]
     if obj_columns:
         logging.debug(
@@ -169,6 +172,7 @@ def mlsmote(
             ignore_index=True,
         )
         df = pd.concat([df, df_objs], axis=1)
+    df[targets] = df[targets].astype(int)
     _prevalence_summary(df_old, df, targets)
     return df
 

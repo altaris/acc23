@@ -13,7 +13,7 @@ from torch.utils.data import DataLoader
 
 from acc23.autoencoders import AE, VAE
 from acc23.dataset import ACCDataset, ImageTransform_t
-from acc23.models import London as Model  # SET CORRECT MODEL CLASS HERE
+from acc23.models import Norway as Model  # SET CORRECT MODEL CLASS HERE
 from acc23.models.base_mlc import (
     BaseMultilabelClassifier,
     ModuleWeightsHistogram,
@@ -61,6 +61,7 @@ def evaluate_model(
     df.to_csv(path, index=False)
     logging.info("Saved train set prediction to '{}'", path)
     path = f"out/{dt}.{name}.train.metrics.csv"
+    metrics = metrics.reset_index(names=["target"])
     metrics.to_csv(path, index=True)
     logging.info("Saved train set prediction metrics to '{}'", path)
 
@@ -74,14 +75,14 @@ def make_dataset(
         image_transform,
         load_csv_kwargs={
             "preprocess": True,
-            "drop_nan_targets": False,
+            "drop_nan_targets": True,
             "impute": True,
             "impute_targets": False,
-            "oversample": False,
+            "oversample": True,
         },
     )
     return ds.train_test_split_dl(
-        ratio=0.75,
+        ratio=0.9,
         dataloader_kwargs={
             "batch_size": 64,
             "pin_memory": True,
@@ -143,14 +144,14 @@ def main():
         root_dir="out",
         early_stopping_kwargs={
             "check_finite": True,
-            "mode": "max",
-            "monitor": "val/f1",
-            "patience": 25,
+            "mode": "min",
+            "monitor": "val/loss",
+            "patience": 10,
         },
         additional_callbacks=[
             # pl.callbacks.LearningRateFinder(num_training_steps=400),
             pl.callbacks.LearningRateMonitor(logging_interval="epoch"),
-            ModuleWeightsHistogram(),
+            # ModuleWeightsHistogram(),
         ],
         max_epochs=100,
     )

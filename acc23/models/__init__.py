@@ -14,3 +14,4 @@ from .jackal import Jackal
 from .kadgar import Kadgar
 from .london import London
 from .masala import Masala
+from .norway import Norway

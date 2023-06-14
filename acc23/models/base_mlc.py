@@ -32,21 +32,21 @@ class BaseMultilabelClassifier(pl.LightningModule):
         optimizer = optim.Adam(
             self.parameters(),
             lr=self.hparams["lr"],
-            weight_decay=1e-5,
+            weight_decay=1e-3,
         )
         # scheduler = optim.lr_scheduler.ReduceLROnPlateau(
         #     optimizer, mode="min", factor=0.2, patience=20, min_lr=5e-5
+        # # )
+        # scheduler = optim.lr_scheduler.OneCycleLR(
+        #     optimizer,
+        #     max_lr=1e-2,
+        #     steps_per_epoch=38,  # TODO: do not hardcode
+        #     epochs=100,  # TODO: do not hardcode
         # )
-        scheduler = optim.lr_scheduler.OneCycleLR(
-            optimizer,
-            max_lr=1e-2,
-            steps_per_epoch=38,  # TODO: do not hardcode
-            epochs=200,  # TODO: do not hardcode
-        )
         return {
             "optimizer": optimizer,
-            "lr_scheduler": scheduler,
-            "monitor": "val/loss",
+            # "lr_scheduler": scheduler,
+            # "monitor": "val/loss",
         }
 
     def evaluate(
@@ -102,8 +102,8 @@ class BaseMultilabelClassifier(pl.LightningModule):
 
         if stage is not None:
             kw = {
-                "y_true": y_true.cpu().detach().numpy(),
-                "y_pred": y_pred.cpu().detach().numpy() > 0,
+                "y_true": y_true.cpu().detach().numpy().astype(int),
+                "y_pred": (y_pred.cpu().detach().numpy() > 0).astype(int),
                 "average": "macro",
                 "zero_division": 0,
             }

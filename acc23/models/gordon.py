@@ -40,47 +40,43 @@ class Gordon(BaseMultilabelClassifier):
             IMAGE_SIZE,
         ),
         out_dim: int = N_TRUE_TARGETS,
-        embed_dim: int = 64,
-        dropout: float = 0.5,
+        embed_dim: int = 16,
+        dropout: float = 0.1,
         activation: str = "gelu",
         **kwargs: Any,
     ) -> None:
         super().__init__(**kwargs)
         self.save_hyperparameters()
         nc, s, _ = image_shape
-        # self.tabular_branch = linear_chain(
-        #     n_features,
-        #     [256, 256, embed_dim],
-        #     activation=activation,
-        # )
-        self.tabular_branch = nn.Sequential(
-            nn.Linear(n_features, embed_dim),
-            get_activation(activation),
+        self.tabular_branch = linear_chain(
+            n_features,
+            [embed_dim],
+            activation=activation,
         )
-        # self.vision_branch_a = nn.Sequential(
-        #     nn.MaxPool2d(5, 2, 2),  # IMAGE_RESIZE_TO = 512 -> 256
-        # )
-        self.vision_branch_a = nn.Identity()
+        self.vision_branch_a = nn.MaxPool2d(5, 2, 2)
+        # self.vision_branch_a = nn.Identity()
         self.vision_branch_b = VisionEncoder(
-            image_shape=image_shape,
+            # image_shape=image_shape,
+            image_shape=(nc, s // 2, s // 2),
             out_channels=[
-                8,  # 512 -> 256
-                8,  # 256 -> 128
-                8,  # -> 64
-                8,  # -> 32
-                8,  # -> 16
-                8,  # -> 8
-                8,  # -> 4
+                # 4,  # 512 -> 256
+                4,  # 256 -> 128
+                4,  # -> 64
+                4,  # -> 32
+                4,  # -> 16
+                4,  # -> 8
+                4,  # -> 4
             ],
             in_features=embed_dim,
             activation=activation,
         )
-        self.vision_branch_c = nn.Linear(4 * 4 * 8, embed_dim, bias=False)
+        self.vision_branch_c = nn.Linear(4 * 4 * 4, embed_dim, bias=False)
         # self.main_branch = nn.Sequential(
         #     nn.Linear(2 * embed_dim, out_dim),
         # )
         self.main_branch = nn.Sequential(
-            nn.Linear(2 * embed_dim, embed_dim),
+            nn.LayerNorm(embed_dim),
+            nn.Linear(embed_dim, embed_dim),
             get_activation(activation),
             nn.Dropout1d(dropout),
             nn.Linear(embed_dim, out_dim),
@@ -114,6 +110,7 @@ class Gordon(BaseMultilabelClassifier):
         v = self.vision_branch_a(img)
         v = self.vision_branch_b(v, u)
         v = self.vision_branch_c(v)
-        uv = torch.concatenate([u, v], dim=-1)
+        # uv = torch.concatenate([u, v], dim=-1)
+        uv = u * v
         w = self.main_branch(uv)
         return w
