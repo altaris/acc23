@@ -3,14 +3,14 @@ Custom pytorch dataset class to read from the competition's data files.
 """
 __docformat__ = "google"
 
-from genericpath import isfile
 from pathlib import Path
-from typing import Callable, Optional, Tuple, Union
+from typing import Callable, Dict, Optional, Tuple, Union
 
 import pandas as pd
 import pytorch_lightning as pl
 import torch
 from torch.utils.data import DataLoader, Dataset
+from loguru import logger as logging
 
 from acc23.constants import IMAGE_SIZE, N_CHANNELS, TARGETS, TRUE_TARGETS
 from acc23.preprocessing import load_csv, load_image
@@ -65,15 +65,16 @@ class ACCDataset(Dataset):
 class ACCDataModule(pl.LightningDataModule):
     """Lightning datamodule to wrap `acc23.dataset.ACCDataset`"""
 
-    train_csv_file_path: Path
-    test_csv_file_path: Path
-    image_dir_path: Path
+    data_cache_path: Path
     dataloader_kwargs: dict
+    image_dir_path: Path
+    test_csv_file_path: Path
+    train_csv_file_path: Path
 
-    ds_train: ACCDataset
-    ds_val: ACCDataset
-    ds_pred: ACCDataset
-    ds_test: ACCDataset
+    ds_train: Optional[ACCDataset] = None
+    ds_val: Optional[ACCDataset] = None
+    ds_pred: Optional[ACCDataset] = None
+    ds_test: Optional[ACCDataset] = None
 
     def __init__(
         self,
@@ -81,23 +82,41 @@ class ACCDataModule(pl.LightningDataModule):
         test_csv_file_path: Union[str, Path] = "data/test.csv",
         image_dir_path: Union[str, Path] = "data/images",
         dataloader_kwargs: Optional[dict] = None,
+        data_cache_path: Union[str, Path] = "out/data.cache",
     ) -> None:
         super().__init__()
-        self.train_csv_file_path = Path(train_csv_file_path)
-        self.test_csv_file_path = Path(test_csv_file_path)
-        self.image_dir_path = Path(image_dir_path)
+        self.data_cache_path = Path(data_cache_path)
         self.dataloader_kwargs = dataloader_kwargs or DEFAULT_DATALOADER_KWARGS
+        self.image_dir_path = Path(image_dir_path)
+        self.test_csv_file_path = Path(test_csv_file_path)
+        self.train_csv_file_path = Path(train_csv_file_path)
 
     def prepare_data(self) -> None:
-        path = Path("data/cache")  # TODO: Dehardcode
-        path.mkdir(exist_ok=True)
-        if (
-            isfile(path / "train.csv")
-            and isfile(path / "val.csv")
-            and isfile(path / "test.csv")
-            and isfile(path / "pred.csv")
-        ):
+        if self.data_cache_path.is_dir():
+            logging.debug(
+                "Data cache path '{}' exist, skipping "
+                "`ACCDataLModule.prepare_data`",
+                self.data_cache_path,
+            )
             return
+        self.data_cache_path.mkdir(parents=True, exist_ok=True)
+        dfs: Dict[str, pd.DataFrame] = {}
+        dfs["test"] = load_csv(  # TODO: Dehardcode
+            path=self.train_csv_file_path,
+            preprocess=True,
+            drop_nan_targets=False,
+            impute=True,
+            impute_targets=False,
+            oversample=False,
+        )
+        dfs["pred"] = load_csv(  # TODO: Dehardcode
+            path=self.test_csv_file_path,
+            preprocess=True,
+            drop_nan_targets=False,
+            impute=True,
+            impute_targets=False,
+            oversample=False,
+        )
         df_tv = load_csv(  # TODO: Dehardcode
             path=self.train_csv_file_path,
             preprocess=True,
@@ -106,48 +125,58 @@ class ACCDataModule(pl.LightningDataModule):
             impute_targets=False,
             oversample=True,
         )
-        df_p = load_csv(  # TODO: Dehardcode
-            path=self.test_csv_file_path,
-            preprocess=True,
-            drop_nan_targets=False,
-            impute=True,
-            impute_targets=False,
-            oversample=False,
-        )
         n, split_ratio = len(df_tv), 0.9  # TODO: Dehardcode
         idxs, m = torch.randperm(n), int(split_ratio * n)
-        df_t, df_v = df_tv.iloc[idxs[:m]], df_tv.iloc[idxs[m:]]
-        df_t.to_csv(path / "train.csv", index=False)
-        df_v.to_csv(path / "val.csv", index=False)
-        df_tv.to_csv(path / "test.csv", index=False)
-        df_p.to_csv(path / "pred.csv", index=False)
+        dfs["train"], dfs["val"] = df_tv.iloc[idxs[:m]], df_tv.iloc[idxs[m:]]
+        for k, df in dfs.items():
+            df.to_csv(self.data_cache_path / f"{k}.csv", index=False)
 
     def setup(self, stage: str) -> None:
-        path = Path("data/cache")  # TODO: Dehardcode
         if stage == "fit":
-            df_train = pd.read_csv(path / "train.csv")
-            df_val = pd.read_csv(path / "val.csv")
+            df_train = pd.read_csv(self.data_cache_path / "train.csv")
+            df_val = pd.read_csv(self.data_cache_path / "val.csv")
             self.ds_train = ACCDataset(df_train, self.image_dir_path)
             self.ds_val = ACCDataset(df_val, self.image_dir_path)
         elif stage == "test":
-            df_test = pd.read_csv(path / "test.csv")
+            df_test = pd.read_csv(self.data_cache_path / "test.csv")
             self.ds_test = ACCDataset(df_test, self.image_dir_path)
         elif stage == "predict":
-            df_pred = pd.read_csv(path / "pred.csv")
+            df_pred = pd.read_csv(self.data_cache_path / "pred.csv")
             self.ds_pred = ACCDataset(df_pred, self.image_dir_path)
         else:
             raise ValueError(f"Unsupported stage: '{stage}'")
 
     def train_dataloader(self) -> DataLoader:
+        if self.ds_train is None:
+            raise RuntimeError(
+                "Train dataset not loaded. Call "
+                "`ACCDataModule.setup('fit')` before using this datamodule."
+            )
         return DataLoader(dataset=self.ds_train, **self.dataloader_kwargs)
 
     def val_dataloader(self) -> DataLoader:
+        if self.ds_val is None:
+            raise RuntimeError(
+                "Validation dataset not loaded. Call "
+                "`ACCDataModule.setup('fit')` before using this datamodule."
+            )
         return DataLoader(dataset=self.ds_val, **self.dataloader_kwargs)
 
     def test_dataloader(self) -> DataLoader:
+        if self.ds_test is None:
+            raise RuntimeError(
+                "Test dataset not loaded. Call "
+                "`ACCDataModule.setup('test')` before using this datamodule."
+            )
         return DataLoader(dataset=self.ds_test, **self.dataloader_kwargs)
 
     def predict_dataloader(self) -> DataLoader:
+        if self.ds_pred is None:
+            raise RuntimeError(
+                "Prediction dataset not loaded. Call "
+                "`ACCDataModule.setup('predict')` before using this "
+                "datamodule."
+            )
         return DataLoader(dataset=self.ds_pred, **self.dataloader_kwargs)
 
 
