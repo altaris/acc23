@@ -31,8 +31,9 @@ class ConvolutionalBlock(nn.Module):
         activation: str = "gelu",
         pooling: Optional[str] = None,
         pooling_size: int = 3,
+        **kwargs: Any,
     ) -> None:
-        super().__init__()
+        super().__init__(**kwargs)
         self.convolution = nn.Conv2d(
             in_channels, out_channels, 4, 2, 1, bias=False
         )

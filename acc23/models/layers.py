@@ -1,7 +1,7 @@
 """Model utilities"""
 __docformat__ = "google"
 
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import torch
 from torch import Tensor, nn
@@ -33,8 +33,9 @@ class ResidualLinearBlock(nn.Module):
         embed_dim: int,
         hidden_dim: Optional[int] = None,
         activation: str = "relu",
+        **kwargs: Any,
     ) -> None:
-        super().__init__()
+        super().__init__(**kwargs)
         hidden_dim = hidden_dim or embed_dim
         self.block = nn.Sequential(
             nn.Linear(embed_dim, hidden_dim),

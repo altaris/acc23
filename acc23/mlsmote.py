@@ -22,7 +22,7 @@ def _mlsmote(
     df: pd.DataFrame,
     targets: List[str],
     n_neighbors: int = 10,
-    sampling_factor: int = 1,
+    sampling_factor: Union[int, Literal["irlbl"]] = 10,
 ) -> pd.DataFrame:
     """
     One round MLSMOTE oversampling.
@@ -44,10 +44,15 @@ def _mlsmote(
             continue
         min_bag, synth_smpls = df.loc[df[tgt] == 1], []
         n = len(min_bag)
-        # logging.debug("Minority target '{}', bag size = {}", tgt, n)
+        m = n * (
+            sampling_factor
+            if isinstance(sampling_factor, int)
+            else int(ir[tgt])
+        )
+        # logging.debug("Minority target '{}', bag size = {}, irlbl = {}, new samples = {}", tgt, n, ir[tgt], m)
         knn = NearestNeighbors(n_neighbors=min(n_neighbors, n))
         knn.fit(min_bag.drop(columns=TARGETS).to_numpy())
-        for i in np.random.choice(n, sampling_factor * n):
+        for i in np.random.choice(n, m):
             sample = min_bag.iloc[i]
             idx = knn.kneighbors(
                 [sample.drop(TARGETS)], return_distance=False
@@ -89,11 +94,12 @@ def _prevalence_summary(
     """
     Logs a summary of the target prevalence changes between two dataframes
     """
-    p_o = pd.Series(df_old[targets].mean(axis=0), name="prev_old")
-    p_n = pd.Series(df_new[targets].mean(axis=0), name="prev_new")
+    kw = {"axis": 0, "skipna": True}
+    p_o = pd.Series(df_old[targets].mean(**kw), name="prev_old")
+    p_n = pd.Series(df_new[targets].mean(**kw), name="prev_new")
     p_d = pd.Series((p_n - p_o) / p_o * 100, name="prev_diff (%)").round(3)
-    n_o = pd.Series(df_old[targets].sum(axis=0), name="n_old", dtype=int)
-    n_n = pd.Series(df_new[targets].sum(axis=0), name="n_new", dtype=int)
+    n_o = pd.Series(df_old[targets].sum(**kw), name="n_old", dtype=int)
+    n_n = pd.Series(df_new[targets].sum(**kw), name="n_new", dtype=int)
     n_d = pd.Series((n_n - n_o) / n_o * 100, name="n_diff (%)").round(3)
     s = pd.concat([p_o, p_n, p_d, n_o, n_n, n_d], axis=1)
     logging.debug("Prevalence summary:\n{}", s)
@@ -124,7 +130,7 @@ def mlsmote(
     df: pd.DataFrame,
     targets: List[str],
     n_neighbors: int = 10,
-    sampling_factor: int = 5,
+    sampling_factor: Union[int, Literal["irlbl"]] = 10,
     apply_remedial: bool = False,
     remedial_threshold: Union[int, Literal["mean"]] = "mean",
 ) -> pd.DataFrame:
@@ -137,11 +143,10 @@ def mlsmote(
         df (pd.DataFrame):
         targets (List[str]):
         n_neighbors (int):
-        sampling_factor (int): In the REMEDIAL stage, for each minority bag
-            `b`, will generate `sampling_factor * len(b)` synthetic samples:
-            `sampling_factor * len(b)` samples are ransomly selected (with
-            repetition) to serve as basis. In particular, not every sample of
-            `b` may serve as basis
+        sampling_factor (Union[int, Literal["irlbl"]]): In the MLSMOTE stage,
+            for each minority bag `b`, will generate `sampling_factor * len(b)`
+            synthetic samples. If `sampling_factor` is `irlbl`, the (rounded)
+            IRLbl score will be used as factor.
         apply_remedial (bool): Whether to apply REMEDIAL before oversampling
         remedial_threshold (Union[int, Literal["mean"]]): See `remedial`
 

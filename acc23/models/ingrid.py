@@ -33,6 +33,7 @@ class AttentionModule(nn.Module):
         num_heads: int = 1,
         dropout: float = 0.0,
         bias: bool = True,
+        **kwargs: Any,
     ) -> None:
         """
         Args:
@@ -40,7 +41,7 @@ class AttentionModule(nn.Module):
             in_features (int): Dimension of the output of tabnet
             activation (str): Defaults to silu
         """
-        super().__init__()
+        super().__init__(**kwargs)
         c, s, _ = image_shape  # TODO: assert square image?
         self.block_1 = nn.Sequential(
             nn.Linear(in_features, c),

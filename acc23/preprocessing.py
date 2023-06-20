@@ -12,6 +12,7 @@ from PIL import Image, ImageFile
 from rich.progress import track
 from sklearn.base import TransformerMixin
 from sklearn.impute import KNNImputer, SimpleImputer
+from sklearn.neighbors import NearestNeighbors
 from sklearn.preprocessing import (
     FunctionTransformer,
     MinMaxScaler,
@@ -33,6 +34,7 @@ from acc23.constants import (
     TRUE_TARGETS,
 )
 from acc23.mlsmote import mlsmote
+import turbo_broccoli as tb
 
 ImageFile.LOAD_TRUNCATED_IMAGES = True
 # Some images are buggy yay:
@@ -130,7 +132,7 @@ def get_dtypes(with_nans: bool = False) -> Dict[str, Any]:
         "Chip_Code": str,
         "Chip_Type": str,
         "Chip_Image_Name": str,
-        "Age": int,
+        "Age": float,
         "Gender": int,
         "Blood_Month_sample": int,
         "French_Residence_Department": str,
@@ -139,15 +141,15 @@ def get_dtypes(with_nans: bool = False) -> Dict[str, Any]:
         "Sensitization": int,
         "Food_Type_0": str,
         "Food_Type_2": str,
-        "Treatment_of_rhinitis": str,  # Comma-sep lst of codes
-        "Treatment_of_athsma": str,  # Comma-sep lst of codes
+        "Treatment_of_rhinitis": str,  # Will be categorized
+        "Treatment_of_athsma": str,  # Will be categorized
         "Age_of_onsets": str,  # Comma-sep lst of age codes
         "Skin_Symptoms": str,  # Will be categorized
-        "General_cofactors": str,  # Comma-sep lst of codes
-        "Treatment_of_atopic_dematitis": str,  # Comma-sep lst of codes
+        "General_cofactors": str,  # Will be categorized
+        "Treatment_of_atopic_dematitis": str,  # Will be categorized
     }
     b = {ige: float for ige in IGES}
-    c = {target: float for target in TARGETS}  # NaN targets are OK
+    c = {target: int for target in TARGETS}
     d = {**a, **b, **c}
     if with_nans:
         columns = [
@@ -155,119 +157,149 @@ def get_dtypes(with_nans: bool = False) -> Dict[str, Any]:
             "Gender",
             "Blood_Month_sample",
             "Rural_or_urban_area",
-        ]  # + TARGETS
+        ] + TARGETS
         for col in columns:
             d[col] = float
     return d
 
 
-def bruteforce_test_dtypes(csv_file_path: Union[str, Path]):
-    """
-    Neanderthal-grade method that checks that a CSV file can be loaded with the
-    dtypes of `acc23.dtype.DTYPES` by repeatedly loading it with larger and
-    larger `acc23.dtype.DTYPES` subdictionaries. Reports when a columns fails
-    conversion.
-    """
-    dtypes = get_dtypes()
-    dtypes_items = list(dtypes.items())
-    for i in range(1, len(dtypes)):
-        try:
-            partial_dtypes = dict(dtypes_items[: i + 1])
-            pd.read_csv(csv_file_path, dtype=partial_dtypes)
-        except Exception as e:
-            n, t = list(partial_dtypes.items())[-1]
-            logging.error(
-                "Column type error: idx={}, name={}, set dtype={}, "
-                "error={}",
-                i,
-                n,
-                t,
-                e,
-            )
-
-
-def impute_dataframe(
-    df: pd.DataFrame, impute_targets: bool = False
+def impute_dataframe_2(
+    df: pd.DataFrame,
+    impute_targets: bool = False,
+    imputer_path: Optional[Union[str, Path]] = None,
 ) -> pd.DataFrame:
     """
-    Performs various imputation tasks on the dataframe.
+    Full dataframe imputation
 
-    TODO: list all of them
-
-    Warning:
-        In the case of KNN imputation, the order of the columns is changed!
+    Args:
+        df (pd.DataFrame):
+        impute_targets (bool):
+        imputer_path (Optional[Union[str, Path]]):
     """
     logging.debug("Imputing dataframe")
-
-    # PMF imputation for IgE columns
-    # df[IGES] = pmf_impute(
-    #     df[IGES].to_numpy(),
-    #     latent_dim=512,
-    #     sigma_x=0.1,
-    #     sigma_y=0.1,
-    #     sigma_v=0.1,
-    #     sigma_w=0.1,
-    # )
-
-    # Simple imputations
-    imputers = [
-        (["Age"], SimpleImputer()),
-        (["Gender"], SimpleImputer(strategy="most_frequent")),
-        (IGES, KNNImputer()),
-    ]
-    if impute_targets:
-        if all(t in df.columns for t in TARGETS):
-            imputers.append((TARGETS, KNNImputer()))
-        else:
-            logging.warning(
-                "impute_targets is True but the dataframe does not have all"
-                "(true and fake) target columns"
-            )
-    impute_columns: List[str] = []
-    for i in imputers:
-        c: Union[str, List[str]] = i[0]
-        impute_columns += c if isinstance(c, list) else [c]
-
-    # Check that non-impute columns don't have NaNs
-    non_impute_columns = [c for c in df.columns if c not in impute_columns]
-    for c in non_impute_columns:
-        a, b = df[c].count(), len(df)
-        if not (
-            a == b  # No NaNs
-            or c in TARGETS  # Some tgts. can be NaN but are ignored at eval.
-            or df.dtypes[c] == "O"  # Obj. cols. can't be imputed
-        ):
-            logging.warning(
-                "Non-object columns '{}' is marked for non-imputation but it "
-                "has {} / {} NaN values ({}%)",
-                c,
-                b - a,
-                b,
-                round((b - a) / b * 100, 3),
-            )
-
-    # Dummy imputers to retain all the columns
-    dummy_imputers = [(c, FunctionTransformer()) for c in non_impute_columns]
-
-    # There's some issues if we ask the mapper to return a dataframe
-    # (df_out=True): All IgE columns get merged :/ Instead we get an array and
-    # reconstruct the dataframe around it being careful with the order of the
-    # column names
-    mapper = DataFrameMapper(imputers + dummy_imputers)
-    x = mapper.fit_transform(df)
-    df = pd.DataFrame(data=x, columns=impute_columns + non_impute_columns)
-    df = df.infer_objects()
-    df = df.astype({c: t for c, t in get_dtypes().items() if c in df.columns})
+    obj_cols = [c for c, d in df.dtypes.items() if str(d) == "object"]
+    if obj_cols:
+        logging.debug(
+            "Setting {} object columns aside: {}",
+            len(obj_cols),
+            obj_cols,
+        )
+        df, df_objs = df.drop(columns=obj_cols), df[obj_cols]
+    has_tgts = all(t in df.columns for t in TARGETS)
+    if has_tgts:
+        df, df_tgt = df.drop(columns=TARGETS), df[TARGETS]
+    elif impute_targets:
+        logging.warning(
+            "Requested imputation of targets but dataframe does not have "
+            "target columns"
+        )
+    if imputer_path is not None:
+        tb.set_artifact_path(Path(imputer_path).parent)
+    if imputer_path is not None and Path(imputer_path).is_file():
+        logging.debug("Loading imputer from '{}'", imputer_path)
+        imputer = tb.load_json(imputer_path)
+    else:
+        logging.debug("Fitting imputer")
+        imputer = KNNImputer().fit(df.to_numpy())
+        if imputer_path is not None:
+            logging.debug("Saving imputer to '{}'", imputer_path)
+            tb.save_json(imputer, imputer_path)
+    df = pd.DataFrame(
+        data=imputer.transform(df.to_numpy()), columns=df.columns
+    )
+    if has_tgts:
+        df[TARGETS] = df_tgt
+    # TODO: Rebinarize other binary columns
+    if obj_cols:
+        df[obj_cols] = df_objs
     df = reorder_columns(df)
     return df
+
+
+# def impute_dataframe(
+#     df: pd.DataFrame, impute_targets: bool = False
+# ) -> pd.DataFrame:
+#     """
+#     Performs various imputation tasks on the dataframe.
+
+#     TODO: list all of them
+
+#     Warning:
+#         In the case of KNN imputation, the order of the columns is changed!
+#     """
+#     logging.debug("Imputing dataframe")
+
+#     # PMF imputation for IgE columns
+#     # df[IGES] = pmf_impute(
+#     #     df[IGES].to_numpy(),
+#     #     latent_dim=512,
+#     #     sigma_x=0.1,
+#     #     sigma_y=0.1,
+#     #     sigma_v=0.1,
+#     #     sigma_w=0.1,
+#     # )
+
+#     # Simple imputations
+#     imputers = [
+#         (["Age"], SimpleImputer(strategy="mean")),
+#         (["Gender"], SimpleImputer(strategy="most_frequent")),
+#         (IGES, SimpleImputer(strategy="most_frequent")),
+#         # (IGES, KNNImputer()),
+#     ]
+#     if impute_targets:
+#         if all(t in df.columns for t in TARGETS):
+#             imputers.append((TARGETS, KNNImputer()))
+#         else:
+#             logging.warning(
+#                 "impute_targets is True but the dataframe does not have all"
+#                 "(true and fake) target columns"
+#             )
+#     impute_columns: List[str] = []
+#     for i in imputers:
+#         c: Union[str, List[str]] = i[0]
+#         impute_columns += c if isinstance(c, list) else [c]
+
+#     # Check that non-impute columns don't have NaNs
+#     non_impute_columns = [c for c in df.columns if c not in impute_columns]
+#     for c in non_impute_columns:
+#         a, b = df[c].count(), len(df)
+#         if not (
+#             a == b  # No NaNs
+#             or c in TARGETS  # Some tgts. can be NaN but are ignored at eval.
+#             or df.dtypes[c] == "O"  # Obj. cols. can't be imputed
+#         ):
+#             logging.warning(
+#                 "Non-object columns '{}' is marked for non-imputation but it "
+#                 "has {} / {} NaN values ({}%)",
+#                 c,
+#                 b - a,
+#                 b,
+#                 round((b - a) / b * 100, 3),
+#             )
+
+#     # Dummy imputers to retain all the columns
+#     dummy_imputers = [(c, FunctionTransformer()) for c in non_impute_columns]
+
+#     # There's some issues if we ask the mapper to return a dataframe
+#     # (df_out=True): All IgE columns get merged :/ Instead we get an array and
+#     # reconstruct the dataframe around it being careful with the order of the
+#     # column names
+#     mapper = DataFrameMapper(imputers + dummy_imputers)
+#     x = mapper.fit_transform(df)
+#     df = pd.DataFrame(data=x, columns=impute_columns + non_impute_columns)
+#     df = df.infer_objects()
+#     df = df.astype({c: t for c, t in get_dtypes().items() if c in df.columns})
+#     df = reorder_columns(df)
+#     return df
 
 
 def load_csv(
     path: Union[str, Path],
     preprocess: bool = True,
-    drop_nan_targets: bool = True,
     impute: bool = True,
+    imputer_path: Optional[Union[str, Path]] = None,
     impute_targets: bool = False,
+    drop_nan_targets: bool = True,
     oversample: bool = False,
 ) -> pd.DataFrame:
     """
@@ -280,14 +312,16 @@ def load_csv(
         path (Union[str, Path]): Path of the csv file.
         preprocess (bool): Whether the dataframe should go through
             `acc23.preprocessing.preprocess_dataframe`.
-        drop_nan_targets (bool): Drop the rows where at least one true target
-            is NaN or 9.
         impute (bool): Whether the dataframe should be imputed (see
             `acc23.preprocessing.impute_dataframe`). Note that imputation is
             not performed if `preprocess=False`.
+        imputer_path (Optional[Union[str, Path]]): Path where the fitted
+            imputer is or shall be dumped.
         impute_targets (bool): If imputing (`impute=True`), whether to impute
             the target columns as well. This has no effect if
             `drop_nan_targets=True`.
+        drop_nan_targets (bool): Drop the rows where at least one true target
+            is NaN or 9. This is performed **after** all imputation tasks.
         oversample (bool): Whether the dataset should be oversampled to try
             and fix class imbalance (see `acc23.mlsmote.mlsmote`). Note that
             oversampling is not performed unless `preprocess=True`,
@@ -329,7 +363,6 @@ def load_csv(
     """
     logging.info("Loading dataframe {}", path)
     df = pd.read_csv(path)
-    # Apparently typing only once isn't enough :/
     df = df.astype(
         {
             c: t
@@ -338,20 +371,28 @@ def load_csv(
         }
     )
     if preprocess:
-        df = preprocess_dataframe(df, drop_nan_targets)
+        df = preprocess_dataframe(df)
     else:
         logging.debug("Skipped preprocessing")
     if impute and preprocess:
-        df = impute_dataframe(
-            df, impute_targets=(not drop_nan_targets) and impute_targets
+        # df = impute_dataframe(df, impute_targets=(not drop_nan_targets) and impute_targets)
+        df = impute_dataframe_2(
+            df,
+            impute_targets=(not drop_nan_targets) and impute_targets,
+            imputer_path=imputer_path,
         )
     else:
         logging.debug("Skipped imputation")
+    if drop_nan_targets:
+        df = _drop_nan_targets(df)
+    else:
+        logging.debug("Not dropping rows with NaN targets")
     if (
         oversample
         and impute
         and preprocess
-        and (drop_nan_targets or impute_targets)
+        # and (drop_nan_targets or impute_targets)
+        and drop_nan_targets
     ):
         df = mlsmote(df, TRUE_TARGETS)
     else:
@@ -486,10 +527,7 @@ def pmf_impute(
     return x_true.numpy()
 
 
-def preprocess_dataframe(
-    df: pd.DataFrame,
-    drop_nan_targets: bool = True,
-) -> pd.DataFrame:
+def preprocess_dataframe(df: pd.DataFrame) -> pd.DataFrame:
     """
     Applies all manners of preprocessing transformers to the dataframe.
 
@@ -522,7 +560,7 @@ def preprocess_dataframe(
                 ),
             ),
         ),
-        (["Age"], MinMaxScaler(feature_range=(0, 150))),
+        (["Age"], StandardScaler()),
         ("Gender", FunctionTransformer()),  # identity
         # ("Blood_Month_sample", LabelBinarizer()),
         (
@@ -646,27 +684,29 @@ def preprocess_dataframe(
         df_out=True,
     )
     df = mapper.fit_transform(df)
-
-    if drop_nan_targets:
-        if all(t in df.columns for t in TRUE_TARGETS):
-            no_nan_tgt = df[TRUE_TARGETS].notna().prod(axis=1) == 1
-            a, b = no_nan_tgt.sum(), len(df)
-            logging.debug(
-                "Dropping rows with at least one NaN true target "
-                "({} / {} rows)",
-                a,
-                b,
-                round(a / b * 100, 3),
-            )
-            df = df[no_nan_tgt].reset_index(drop=True)
-        else:
-            logging.warning(
-                "drop_nan_targets set to True, but dataframe does not have "
-                "all true target columns. Skipping drops"
-            )
-
     df = df.infer_objects()
     return reorder_columns(df)
+
+
+# TODO: find a better name
+def _drop_nan_targets(df: pd.DataFrame) -> pd.DataFrame:
+    """Drop all rows where at least one target is NaN"""
+    if not all(t in df.columns for t in TARGETS):
+        logging.warning(
+            "drop_nan_targets set to True, but dataframe does not have "
+            "all target columns. Skipping drops"
+        )
+        return
+    no_nan_tgt = df[TARGETS].notna().prod(axis=1) == 1
+    a, b = no_nan_tgt.sum(), len(df)
+    logging.debug(
+        "Dropping rows with at least one NaN target " "({} / {} rows, {}%)",
+        a,
+        b,
+        round(a / b * 100, 3),
+    )
+    df = df[no_nan_tgt].reset_index(drop=True)
+    return df
 
 
 def reorder_columns(df: pd.DataFrame) -> pd.DataFrame:
