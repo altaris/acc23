@@ -2,7 +2,7 @@
 Attention & transformer related modules
 """
 
-from typing import Literal, Optional, Tuple
+from typing import Dict, List, Literal, Optional, Tuple
 
 import torch
 from torch import Tensor, nn
@@ -42,13 +42,10 @@ class CoAttentionTransformerEncoderLayer(nn.Module):
         representations for vision-and-language tasks." Advances in neural
         information processing systems 32 (2019).
 
-    Note that the attention part uses late normalization as opposed to early
-    normalization.
     """
 
     mhas: nn.ModuleList
     norms: nn.ModuleList
-    drops: nn.ModuleList
     mlps: nn.ModuleList
     last: bool
 
@@ -56,7 +53,7 @@ class CoAttentionTransformerEncoderLayer(nn.Module):
         self,
         embed_dim: int,
         num_heads: int,
-        hidden_dim: int = 2048,
+        mlp_dim: int = 2048,
         dropout: float = 0.1,
         activation: str = "gelu",
         last: bool = False,
@@ -65,7 +62,7 @@ class CoAttentionTransformerEncoderLayer(nn.Module):
         Args:
             embed_dim (int):
             num_heads (int):
-            hidden_dim (int):
+            mlp_dim (int):
             dropout (float):
             activation (str):
             last (bool): If set to `True`, the right/second/`w` branch is just
@@ -84,19 +81,14 @@ class CoAttentionTransformerEncoderLayer(nn.Module):
                 for _ in range(1 if last else 2)  # One module if last, 2 o.w.
             ],
         )
-        self.drops = nn.ModuleList(
-            [
-                nn.Dropout(dropout)
-                for _ in range(1 if last else 2)  # One module if last, 2 o.w.
-            ],
-        )
         self.mlps = nn.ModuleList(
             [
                 nn.Sequential(
-                    nn.Linear(embed_dim, hidden_dim),
+                    nn.LayerNorm(embed_dim),
+                    nn.Linear(embed_dim, mlp_dim),
                     get_activation(activation),
-                    nn.Dropout(dropout),
-                    nn.Linear(hidden_dim, embed_dim),
+                    nn.Linear(mlp_dim, embed_dim),
+                    get_activation(activation),
                     nn.Dropout(dropout),
                 )
                 for _ in range(1 if last else 2)  # One module if last, 2 o.w.
@@ -107,22 +99,21 @@ class CoAttentionTransformerEncoderLayer(nn.Module):
     # pylint: disable=missing-function-docstring
     def forward(self, v: Tensor, w: Tensor) -> Tuple[Tensor, Tensor]:
         if self.last:
-            mha_v, norm_v = self.mhas[0], self.norms[0]
-            drop_v, mlp_v = self.drops[0], self.mlps[0]
-            a, _ = mha_v(query=v, key=w, value=w, need_weights=False)
-            v = norm_v(a + v)
-            v = drop_v(v)
-            v = mlp_v(v)
+            mha_v, norm_v, norm_w = self.mhas[0], self.norms[0], self.norms[1]
+            mlp_v = self.mlps[0]
+            a, b = norm_v(v), norm_w(w)
+            c, _ = mha_v(query=a, key=b, value=b, need_weights=False)
+            v = c + v
+            v = mlp_v(v) + v
         else:
             mha_v, mha_w = self.mhas[0], self.mhas[1]
             norm_v, norm_w = self.norms[0], self.norms[1]
-            drop_v, drop_w = self.drops[0], self.drops[1]
             mlp_v, mlp_w = self.mlps[0], self.mlps[1]
-            a, _ = mha_v(query=v, key=w, value=w, need_weights=False)
-            b, _ = mha_w(query=w, key=v, value=v, need_weights=False)
-            v, w = norm_v(a + v), norm_w(b + w)
-            v, w = drop_v(v), drop_w(w)
-            v, w = mlp_v(v), mlp_w(w)
+            a, b = norm_v(v), norm_w(w)
+            c, _ = mha_v(query=a, key=b, value=b, need_weights=False)
+            d, _ = mha_w(query=b, key=a, value=a, need_weights=False)
+            v, w = c + v, d + w
+            v, w = mlp_v(v) + v, mlp_w(w) + w
         return v, w
 
 
@@ -138,7 +129,7 @@ class CoAttentionVisionTransformer(nn.Module):
     patch_size: int
     projection: nn.Module
     transformers: nn.ModuleList
-    mlp_head: nn.Module
+    mlp_head: Optional[nn.Module] = None
     dropout: nn.Module
 
     class_token: nn.Parameter
@@ -154,6 +145,7 @@ class CoAttentionVisionTransformer(nn.Module):
         num_heads: int,
         dropout: float = 0.1,
         activation: str = "gelu",
+        headless: bool = False,
     ) -> None:
         """
         Args:
@@ -165,6 +157,7 @@ class CoAttentionVisionTransformer(nn.Module):
             num_heads (int):
             dropout (float): Defaults to `0.1`
             activation (str): Defaults to `gelu`
+            headless (bool):
         """
         super().__init__()
         c, s, _ = input_shape
@@ -180,24 +173,25 @@ class CoAttentionVisionTransformer(nn.Module):
                 CoAttentionTransformerEncoderLayer(
                     embed_dim=embed_dim,
                     num_heads=num_heads,
-                    hidden_dim=2 * embed_dim,
+                    mlp_dim=2 * embed_dim,
                     dropout=dropout,
                     activation=activation,
-                    last=(i == num_transformers - 1),
+                    last=(not headless and i == num_transformers - 1),
                 )
                 for i in range(num_transformers)
             ]
         )
-        self.mlp_head = nn.Sequential(
-            nn.LayerNorm(embed_dim),
-            nn.Linear(embed_dim, out_dim),
-        )
+        if not headless:
+            self.mlp_head = nn.Sequential(
+                nn.LayerNorm(embed_dim),
+                nn.Linear(embed_dim, out_dim),
+            )
         self.dropout = nn.Dropout(dropout) if dropout > 0 else nn.Identity()
         self.class_token = nn.Parameter(torch.randn(embed_dim))
         self.pos_embed = nn.Parameter(torch.randn(np + 1, embed_dim))
 
     # pylint: disable=missing-function-docstring
-    def forward(self, img: Tensor, u: Tensor) -> Tensor:
+    def forward(self, img: Tensor, u: Tensor) -> Tuple[Tensor, Tensor]:
         x, n_patches, _ = make_patches(img, self.patch_size)  # (b, np, N)
         # Layers only act on last dim(s) =)
         x = self.projection(x)  # (b, np, ed)
@@ -207,11 +201,12 @@ class CoAttentionVisionTransformer(nn.Module):
         z = self.dropout(z)
         z = z.transpose(0, 1)  # (np + 1, b, ed)
         u = u.repeat(n_patches + 1, 1, 1)
-        for transformer in self.transformers:
-            z, u = transformer(z, u)
-        z = z[0]  # (b, ed)
-        y = self.mlp_head(z)
-        return y
+        for l in self.transformers:
+            z, u = l(z, u)
+        z, u = z[0], u[0]  # (b, ed)
+        if self.mlp_head is not None:
+            z = self.mlp_head(z)
+        return z, u
 
 
 class CrossModalTransformerEncoderLayer(nn.Module):
@@ -493,6 +488,77 @@ class CrossModalVisionTransformer(nn.Module):
         return y
 
 
+class TabTransformer(nn.Module):
+    """
+    TabTransformer from
+
+        Huang, Xin, et al. "Tabtransformer: Tabular data modeling using
+        contextual embeddings." arXiv preprint arXiv:2012.06678 (2020).
+
+    """
+
+    col_embed: nn.ModuleDict
+    mlp: nn.Module
+    transformers: nn.Module
+    norm: nn.Module
+
+    def __init__(
+        self,
+        n_num_features: int,
+        n_classes: Dict[str, int],  # Un-one-hot stuff :/
+        out_dim: int,
+        embed_dim: int = 32,
+        n_transformers: int = 16,
+        n_heads: int = 8,
+        dropout: float = 0.25,
+        activation: str = "gelu",
+        mlp_dim: int = 2048,
+        **kwargs,
+    ) -> None:
+        super().__init__(**kwargs)
+        self.col_embed = nn.ModuleDict(
+            {
+                k: nn.Linear(n, embed_dim, bias=False)
+                for k, n in n_classes.items()
+            }
+        )
+        self.transformers = nn.Sequential(
+            *[
+                nn.TransformerEncoderLayer(
+                    d_model=embed_dim,
+                    nhead=n_heads,
+                    dropout=dropout,
+                    activation=activation,
+                    dim_feedforward=mlp_dim,
+                )
+                for _ in range(n_transformers)
+            ]
+        )
+        self.norm = nn.LayerNorm(n_num_features)
+        self.mlp = nn.Sequential(
+            nn.Linear(len(n_classes) * embed_dim + n_num_features, mlp_dim),
+            get_activation(activation),
+            nn.Dropout(dropout),
+            nn.Linear(mlp_dim, out_dim),
+            get_activation(activation),
+        )
+
+    # pylint: disable=missing-function-docstring
+    def forward(self, x_cat: Dict[str, Tensor], x_num: Tensor) -> Tensor:
+        embs: List[Tensor] = []
+        for k, v in x_cat.items():
+            w = self.col_embed[k](v)
+            w = w.unsqueeze(0)  # for the cat later
+            embs.append(w)
+        u = torch.cat(embs, dim=0)
+        u = self.transformers(u)
+        u = u.permute(1, 0, 2)
+        u = u.reshape(u.shape[0], -1)
+        v = torch.cat([u, self.norm(x_num)], dim=-1)
+        w = self.mlp(v)
+        return w
+
+
 class VisionTransformer(nn.Module):
     """
     Vision transformer of
@@ -524,6 +590,7 @@ class VisionTransformer(nn.Module):
         num_heads: int,
         dropout: float = 0.1,
         activation: str = "gelu",
+        mlp_dim: int = 2048,
     ) -> None:
         """
         Args:
@@ -535,6 +602,7 @@ class VisionTransformer(nn.Module):
             num_heads (int):
             dropout (float): Defaults to `0.1`
             activation (str): Defaults to `gelu`
+            mlp_dim (int):
         """
         super().__init__()
         c, s, _ = input_shape
@@ -550,7 +618,7 @@ class VisionTransformer(nn.Module):
                 nn.TransformerEncoderLayer(
                     d_model=embed_dim,
                     nhead=num_heads,
-                    dim_feedforward=2 * embed_dim,
+                    dim_feedforward=mlp_dim,
                     activation=activation,
                     dropout=dropout,
                 )
@@ -560,6 +628,7 @@ class VisionTransformer(nn.Module):
         self.mlp_head = nn.Sequential(
             nn.LayerNorm(embed_dim),
             nn.Linear(embed_dim, out_dim),
+            get_activation(activation),
         )
         self.dropout = nn.Dropout(dropout) if dropout > 0 else nn.Identity()
         self.class_token = nn.Parameter(torch.randn(embed_dim))
