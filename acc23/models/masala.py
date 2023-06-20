@@ -4,7 +4,7 @@ vision transformer is replaced by a cross modal vision transformer.
 """
 __docformat__ = "google"
 
-from typing import Dict, Literal, Tuple, Union
+from typing import Any, Dict, Literal, Tuple, Union
 
 import torch
 from torch import Tensor, nn
@@ -41,8 +41,9 @@ class Masala(BaseMultilabelClassifier):
         method: Literal["a", "b", "c", "f"] = "a",
         dropout: float = 0.0,
         activation: str = "gelu",
+        **kwargs: Any,
     ) -> None:
-        super().__init__()
+        super().__init__(**kwargs)
         self.save_hyperparameters()
         nc, s, _ = image_shape
         self.tabular_encoder = nn.Sequential(

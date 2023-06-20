@@ -11,7 +11,7 @@ vision encoder integrates CBAM modules from
 __docformat__ = "google"
 
 from itertools import zip_longest
-from typing import Dict, List, Tuple, Union
+from typing import Any, Dict, List, Tuple, Union
 
 import torch
 from torch import Tensor, nn
@@ -148,8 +148,8 @@ class Kadgar(BaseMultilabelClassifier):
     vision_branch_b: nn.Module  # Conv fusion encoder
     main_branch: nn.Module  # Fusion branch
 
-    def __init__(self) -> None:
-        super().__init__()
+    def __init__(self, **kwargs: Any) -> None:
+        super().__init__(**kwargs)
         self.save_hyperparameters()
         embed_dim, activation = 256, "gelu"
         self.tabular_branch = nn.Sequential(

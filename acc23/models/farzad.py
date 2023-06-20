@@ -5,7 +5,7 @@ VAE.
 """
 __docformat__ = "google"
 
-from typing import Dict, Union
+from typing import Any, Dict, Union
 
 import torch
 from torch import Tensor, nn
@@ -25,8 +25,8 @@ class Farzad(BaseMultilabelClassifier):
     _module_a: nn.Module  # Dense input branch
     _module_b: nn.Module  # Merge branch
 
-    def __init__(self, vae_latent_dim: int = 256) -> None:
-        super().__init__()
+    def __init__(self, vae_latent_dim: int = 256, **kwargs: Any) -> None:
+        super().__init__(**kwargs)
         self.save_hyperparameters()
         self._module_a = nn.Sequential(
             ResNetLinearLayer(N_FEATURES, 256),

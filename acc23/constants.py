@@ -686,6 +686,7 @@ Tabular features after preprocessing. This list can be obtained by running
     list(df.columns)
 """
 
+
 N_FEATURES = len(FEATURES) - 1
 """Number of features **excluding `Chip_Image_Name`**"""
 
@@ -1183,7 +1184,7 @@ CLASSES = {
 }
 """Classes of categorical columns"""
 
-IMAGE_SIZE = 512
+IMAGE_SIZE = 128
 """
 By default, images will be resized to `IMAGE_RESIZE_TO x IMAGE_RESIZE_TO`. See
 also `ACCDataset.__getitem__` and

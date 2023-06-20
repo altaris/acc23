@@ -8,7 +8,7 @@ ACC23 main multi-classification model: prototype "Helena" aka TabVisionNet from
 """
 __docformat__ = "google"
 
-from typing import Dict, Tuple, Union
+from typing import Any, Dict, Tuple, Union
 
 import torch
 from torch import Tensor, nn
@@ -38,6 +38,7 @@ class Helena(BaseMultilabelClassifier):
         n_encoded_features: int = 256,
         gamma: float = 2.0,
         sparse_loss_weight: float = 5e-3,
+        **kwargs: Any,
     ) -> None:
         """
         Args:
@@ -54,7 +55,7 @@ class Helena(BaseMultilabelClassifier):
                 steps is large.
             activation (str): Defaults to relu, as in the paper
         """
-        super().__init__()
+        super().__init__(**kwargs)
         self.save_hyperparameters()
         self.sparse_loss_weight = sparse_loss_weight
         self.tabular_encoder = TabNetEncoder(

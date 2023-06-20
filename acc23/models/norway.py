@@ -34,38 +34,43 @@ class Norway(BaseMultilabelClassifier):
             IMAGE_SIZE,
         ),
         out_dim: int = N_TRUE_TARGETS,
-        embed_dim: int = 1024,
+        embed_dim: int = 512,
         patch_size: int = 16,
         n_transformers: int = 16,
-        n_heads: int = 16,
-        dropout: float = 0.23,
+        n_heads: int = 8,
+        dropout: float = 0.1,
         activation: str = "gelu",
+        pooling: bool = False,
+        **kwargs,
     ) -> None:
-        super().__init__()
+        super().__init__(**kwargs)
         self.save_hyperparameters()
         nc, s, _ = image_shape
         self.tabular_encoder = nn.Sequential(
-            nn.Linear(n_features, embed_dim),
+            nn.Linear(n_features, 2 * embed_dim),
+            nn.LayerNorm(2 * embed_dim),
             get_activation(activation),
+            nn.Dropout(dropout),
+            nn.Linear(2 * embed_dim, embed_dim),
+            nn.LayerNorm(embed_dim),
+            get_activation(activation),
+            nn.Dropout(dropout),
         )
-        # self.tabular_encoder = linear_chain(
-        #     n_features,
-        #     [512, embed_dim],
-        #     activation=activation,
-        # )
-        self.pooling = nn.MaxPool2d(5, 2, 2)  # 512 -> 256
+        self.pooling = nn.MaxPool2d(7, 2, 3) if pooling else nn.Identity()
         self.vision_transformer = CoAttentionVisionTransformer(
             patch_size=patch_size,
-            input_shape=(nc, s // 2, s // 2),
+            input_shape=((nc, s // 2, s // 2) if pooling else (nc, s, s)),
             embed_dim=embed_dim,
             out_dim=embed_dim,
             num_transformers=n_transformers,
             num_heads=n_heads,
             dropout=dropout,
             activation=activation,
+            headless=True,
         )
         self.main_branch = nn.Sequential(
-            nn.Linear(2 * embed_dim, embed_dim),
+            nn.Linear(3 * embed_dim, embed_dim),
+            nn.LayerNorm(embed_dim),
             get_activation(activation),
             nn.Dropout(dropout),
             nn.Linear(embed_dim, out_dim),
@@ -97,11 +102,7 @@ class Norway(BaseMultilabelClassifier):
         x = x.float().to(self.device)  # type: ignore
         img = img.to(self.device)  # type: ignore
         a = self.tabular_encoder(x)
-        b = (
-            self.vision_transformer(self.pooling(img), a)
-            # if img.max() > 0
-            # else torch.zeros_like(a)
-        )
-        ab = torch.concatenate([a, b], dim=-1)
-        c = self.main_branch(ab)
+        b, c = self.vision_transformer(self.pooling(img), a)
+        d = torch.concatenate([a, b, c], dim=-1)
+        c = self.main_branch(d)
         return c

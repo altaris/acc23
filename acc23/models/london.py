@@ -4,7 +4,7 @@ convolutional branch is a vision transformer
 """
 __docformat__ = "google"
 
-from typing import Dict, Tuple, Union
+from typing import Any, Dict, Tuple, Union
 
 import torch
 from torch import Tensor, nn
@@ -33,36 +33,42 @@ class London(BaseMultilabelClassifier):
             IMAGE_SIZE,
         ),
         out_dim: int = N_TRUE_TARGETS,
-        embed_dim: int = 64,
-        patch_size: int = 16,
-        n_transformers: int = 8,
+        embed_dim: int = 512,
+        patch_size: int = 8,
+        n_transformers: int = 16,
         n_heads: int = 8,
-        dropout: float = 0.0,
+        dropout: float = 0.1,
         activation: str = "gelu",
+        pooling: bool = False,
+        **kwargs: Any,
     ) -> None:
-        super().__init__()
+        super().__init__(**kwargs)
         self.save_hyperparameters()
         nc, s, _ = image_shape
-        self.tabular_encoder = linear_chain(
-            n_features,
-            [embed_dim],
-            activation=activation,
+        self.tabular_encoder = nn.Sequential(
+            nn.Linear(n_features, 2 * embed_dim),
+            nn.LayerNorm(2 * embed_dim),
+            get_activation(activation),
+            nn.Dropout(dropout),
+            nn.Linear(2 * embed_dim, embed_dim),
+            nn.LayerNorm(embed_dim),
+            get_activation(activation),
+            nn.Dropout(dropout),
         )
         self.vision_transformer = nn.Sequential(
-            nn.MaxPool2d(5, 2, 2),  # 512 -> 256
+            nn.MaxPool2d(5, 2, 2) if pooling else nn.Identity(),
             VisionTransformer(
                 patch_size=patch_size,
-                # input_shape=(nc, s, s),
-                input_shape=(nc, s // 2, s // 2),
+                input_shape=((nc, s // 2, s // 2) if pooling else (nc, s, s)),
                 embed_dim=embed_dim,
                 out_dim=embed_dim,
                 num_transformers=n_transformers,
                 num_heads=n_heads,
-                dropout=0.1,
+                dropout=dropout,
                 activation=activation,
             ),
             # ViT(
-            #     image_size=s,
+            #     image_size=(s // 2 if pooling else s),
             #     channels=nc,
             #     patch_size=patch_size,
             #     num_classes=embed_dim,
@@ -76,16 +82,11 @@ class London(BaseMultilabelClassifier):
         )
         self.main_branch = nn.Sequential(
             nn.Linear(2 * embed_dim, embed_dim),
+            nn.LayerNorm(embed_dim),
             get_activation(activation),
-            nn.Dropout1d(dropout) if dropout > 0 else nn.Identity(),
+            nn.Dropout(dropout),
             nn.Linear(embed_dim, out_dim),
         )
-        # self.main_branch = linear_chain(
-        #     2 * embed_dim,
-        #     [embed_dim, out_dim],
-        #     activation=activation,
-        #     last_activation="linear",
-        # )
         self.example_input_array = (
             torch.zeros((32, n_features)),
             torch.zeros((32, nc, s, s)),

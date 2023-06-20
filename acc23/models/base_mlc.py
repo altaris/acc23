@@ -1,7 +1,7 @@
 """Base class for multilabel classifiers"""
 __docformat__ = "google"
 
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Literal, Optional
 
 import numpy as np
 import pytorch_lightning as pl
@@ -25,7 +25,14 @@ class BaseMultilabelClassifier(pl.LightningModule):
     """Base class for multilabel classifiers (duh)"""
 
     # pylint: disable=unused-argument
-    def __init__(self, lr: float = 1e-4) -> None:
+    def __init__(
+        self,
+        lr: float = 1e-4,
+        weight_decay: float = 1e-3,
+        loss_function: Literal[
+            "bce", "irlbl_bce", "focal", "db", "mse"
+        ] = "db",
+    ) -> None:
         super().__init__()
         self.save_hyperparameters()
 
@@ -33,10 +40,13 @@ class BaseMultilabelClassifier(pl.LightningModule):
         optimizer = optim.Adam(
             self.parameters(),
             lr=self.hparams["lr"],
-            weight_decay=1e-3,
+            weight_decay=self.hparams["weight_decay"],
         )
         scheduler = optim.lr_scheduler.ReduceLROnPlateau(
-            optimizer, mode="min", factor=0.5, patience=10
+            optimizer,
+            mode="max",
+            factor=0.5,
+            patience=5,
         )
         # scheduler = optim.lr_scheduler.OneCycleLR(
         #     optimizer,
@@ -47,7 +57,7 @@ class BaseMultilabelClassifier(pl.LightningModule):
         return {
             "optimizer": optimizer,
             "lr_scheduler": scheduler,
-            "monitor": "val/loss",
+            "monitor": "val/f1",
         }
 
     def evaluate(
@@ -83,22 +93,26 @@ class BaseMultilabelClassifier(pl.LightningModule):
         y_true = y_true.float().to(y_pred.device)  # type: ignore
 
         # Loss
-        prev_true = torch.tensor(TRUE_TARGETS_PREVALENCE, device=y_pred.device)
-        loss = (
-            # nn.functional.mse_loss(y_pred.sigmoid(), y_true)
-            # nn.functional.binary_cross_entropy_with_logits(
-            #     y_pred,
-            #     y_true,
-            #     weight=Tensor(TRUE_TARGETS_IRLBL).to(y_pred.device),
-            # )
-            # class_balanced_focal_loss_with_logits(y_pred, y_true, n_true)
-            # rebalanced_bce_with_logits(y_pred, y_true, prev_true)
-            # focal_loss_with_logits(y_pred, y_true)
-            distribution_balanced_loss_with_logits(y_pred, y_true, prev_true)
-            # bp_mll_loss(y_pred.sigmoid(), y_true)
-            # - continuous_f1_score(y_pred.sigmoid(), y_true)
-        )
-
+        lfn = self.hparams["loss_function"]
+        if lfn == "bce":
+            loss = nn.functional.binary_cross_entropy_with_logits(
+                y_pred, y_true
+            )
+        elif lfn == "irlbl_bce":
+            loss = nn.functional.binary_cross_entropy_with_logits(
+                y_pred,
+                y_true,
+                weight=Tensor(TRUE_TARGETS_IRLBL).to(y_pred.device),
+            )
+        elif lfn == "focal":
+            loss = focal_loss_with_logits(y_pred, y_true)
+        elif lfn == "db":
+            p = torch.tensor(TRUE_TARGETS_PREVALENCE, device=y_pred.device)
+            loss = distribution_balanced_loss_with_logits(y_pred, y_true, p)
+        elif lfn == "mse":
+            loss = nn.functional.mse_loss(y_pred.sigmoid(), y_true)
+        else:
+            raise ValueError(f"Unsupported loss function '{lfn}'")
         if stage is not None:
             kw = {
                 "y_true": y_true.cpu().detach().numpy().astype(int),
@@ -123,7 +137,6 @@ class BaseMultilabelClassifier(pl.LightningModule):
                 },
                 sync_dist=True,
             )
-
         return loss
 
     def on_train_start(self):

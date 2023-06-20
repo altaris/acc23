@@ -94,36 +94,51 @@ class ACCDataModule(pl.LightningDataModule):
     def prepare_data(self) -> None:
         if self.data_cache_path.is_dir():
             logging.debug(
-                "Data cache path '{}' exist, skipping "
+                "Data cache path '{}' exists, skipping "
                 "`ACCDataLModule.prepare_data`",
                 self.data_cache_path,
             )
             return
         self.data_cache_path.mkdir(parents=True, exist_ok=True)
+
+        # Quick and dirty
+        import turbo_broccoli as tb
+        from sklearn.impute import KNNImputer
+
+        a = load_csv(
+            self.train_csv_file_path, impute=False, drop_nan_targets=False
+        )
+        b = load_csv(
+            self.test_csv_file_path, impute=False, drop_nan_targets=False
+        )
+        c = pd.concat([a, b], axis=0)
+        c = c.drop(columns=TARGETS + ["Chip_Image_Name"])
+        knn = KNNImputer().fit(c.to_numpy())
+        tb.set_artifact_path(self.data_cache_path)
+        tb.save_json(knn, self.data_cache_path / "imputer.json")
+        logging.warning("Done quick&dirty knn fit. Refactor that soon ok?")
+
         dfs: Dict[str, pd.DataFrame] = {}
         dfs["test"] = load_csv(  # TODO: Dehardcode
             path=self.train_csv_file_path,
-            preprocess=True,
-            drop_nan_targets=False,
             impute=True,
-            impute_targets=False,
-            oversample=False,
-        )
-        dfs["pred"] = load_csv(  # TODO: Dehardcode
-            path=self.test_csv_file_path,
-            preprocess=True,
+            imputer_path=self.data_cache_path / "imputer.json",
             drop_nan_targets=False,
-            impute=True,
-            impute_targets=False,
             oversample=False,
         )
         df_tv = load_csv(  # TODO: Dehardcode
             path=self.train_csv_file_path,
-            preprocess=True,
-            drop_nan_targets=True,
             impute=True,
-            impute_targets=False,
+            imputer_path=self.data_cache_path / "imputer.json",
+            drop_nan_targets=True,
             oversample=True,
+        )
+        dfs["pred"] = load_csv(  # TODO: Dehardcode
+            path=self.test_csv_file_path,
+            impute=True,
+            imputer_path=self.data_cache_path / "imputer.json",
+            drop_nan_targets=False,  # There are no targets in pred ds =)
+            oversample=False,
         )
         n, split_ratio = len(df_tv), 0.9  # TODO: Dehardcode
         idxs, m = torch.randperm(n), int(split_ratio * n)
