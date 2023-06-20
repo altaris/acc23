@@ -3,7 +3,7 @@ diffusers[training]
 git+https://github.com/altaris/turbo-broccoli.git
 loguru
 matplotlib
-numpy
+numpy==1.23
 Pillow
 pytorch-lightning==2.0.0
 rich

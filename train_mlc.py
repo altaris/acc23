@@ -57,7 +57,7 @@ def evaluate_model(
 
 
 def main():
-    model = models.Norway()  # SET CORRECT MODEL CLASS HERE
+    model = models.Orchid()  # SET CORRECT MODEL CLASS HERE
     datamodule = ACCDataModule()
     model = train_model(
         model,
@@ -65,9 +65,9 @@ def main():
         root_dir="out",
         early_stopping_kwargs={
             "check_finite": True,
-            "mode": "min",
-            "monitor": "val/loss",
-            "patience": 10,
+            "mode": "max",
+            "monitor": "val/f1",
+            "patience": 20,
         },
         max_epochs=200,
     )
