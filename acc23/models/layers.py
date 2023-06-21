@@ -15,6 +15,45 @@ from transformers.activations import get_activation
 from acc23.constants import IMAGE_SIZE
 
 
+class MLP(nn.Sequential):
+    """A MLP (yep)"""
+
+    def __init__(
+        self,
+        in_dim: int,
+        hidden_dims: List[int],
+        layer_norm: bool = True,
+        activation: str = "gelu",
+        dropout: float = 0.0,
+        is_head: bool = False,
+    ):
+        """
+        Args:
+            in_dim (int):
+            hidden_dims (List[int]):
+            layer_norm (bool):
+            activation (str):
+            dropout (float):
+            is_head (bool): If set to `True`, there will be no layer
+                normalization, activation, nor dropout after the last dense
+                layer
+        """
+        ns = [in_dim] + hidden_dims
+        layers: List[nn.Module] = []
+        for i in range(1, len(ns)):
+            a, b = ns[i - 1], ns[i]
+            layers.append(nn.Linear(a, b))
+            if not (is_head and i == len(ns) - 1):
+                # The only time we don't add ln/act/drop is after the last
+                # layer if the MLP is a head
+                if layer_norm:
+                    layers.append(nn.LayerNorm(b))
+                layers.append(get_activation(activation))
+                if dropout > 0:
+                    layers.append(nn.Dropout(dropout))
+        super().__init__(*layers)
+
+
 class ResidualLinearBlock(nn.Module):
     """
     Residual linear block from

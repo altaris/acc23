@@ -2,20 +2,19 @@
 
 import re
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional, Union
+from typing import Any, Dict, Iterable, Optional, Union
 
 import numpy as np
 import pandas as pd
 import torch
+import turbo_broccoli as tb
 from loguru import logger as logging
 from PIL import Image, ImageFile
 from rich.progress import track
 from sklearn.base import TransformerMixin
-from sklearn.impute import KNNImputer, SimpleImputer
-from sklearn.neighbors import NearestNeighbors
+from sklearn.impute import KNNImputer
 from sklearn.preprocessing import (
     FunctionTransformer,
-    MinMaxScaler,
     MultiLabelBinarizer,
     StandardScaler,
 )
@@ -34,7 +33,6 @@ from acc23.constants import (
     TRUE_TARGETS,
 )
 from acc23.mlsmote import mlsmote
-import turbo_broccoli as tb
 
 ImageFile.LOAD_TRUNCATED_IMAGES = True
 # Some images are buggy yay:
@@ -696,11 +694,11 @@ def _drop_nan_targets(df: pd.DataFrame) -> pd.DataFrame:
             "drop_nan_targets set to True, but dataframe does not have "
             "all target columns. Skipping drops"
         )
-        return
+        return df
     no_nan_tgt = df[TARGETS].notna().prod(axis=1) == 1
     a, b = no_nan_tgt.sum(), len(df)
     logging.debug(
-        "Dropping rows with at least one NaN target " "({} / {} rows, {}%)",
+        "Dropping rows with at least one NaN target ({} / {} rows, {}%)",
         a,
         b,
         round(a / b * 100, 3),
