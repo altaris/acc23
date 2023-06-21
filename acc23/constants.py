@@ -1184,7 +1184,7 @@ CLASSES = {
 }
 """Classes of categorical columns"""
 
-IMAGE_SIZE = 128
+IMAGE_SIZE = 256
 """
 By default, images will be resized to `IMAGE_RESIZE_TO x IMAGE_RESIZE_TO`. See
 also `ACCDataset.__getitem__` and

@@ -28,12 +28,13 @@ class BaseMultilabelClassifier(pl.LightningModule):
     def __init__(
         self,
         lr: float = 1e-4,
-        weight_decay: float = 1e-3,
+        weight_decay: float = 5e-3,
         loss_function: Literal[
             "bce", "irlbl_bce", "focal", "db", "mse"
         ] = "db",
+        **kwargs,
     ) -> None:
-        super().__init__()
+        super().__init__(**kwargs)
         self.save_hyperparameters()
 
     def configure_optimizers(self) -> Any:
@@ -42,22 +43,22 @@ class BaseMultilabelClassifier(pl.LightningModule):
             lr=self.hparams["lr"],
             weight_decay=self.hparams["weight_decay"],
         )
-        scheduler = optim.lr_scheduler.ReduceLROnPlateau(
-            optimizer,
-            mode="max",
-            factor=0.5,
-            patience=5,
-        )
+        # scheduler = optim.lr_scheduler.ReduceLROnPlateau(
+        #     optimizer,
+        #     mode="max",
+        #     factor=0.5,
+        #     patience=5,
+        # )
         # scheduler = optim.lr_scheduler.OneCycleLR(
         #     optimizer,
-        #     max_lr=1e-2,
-        #     steps_per_epoch=38,  # TODO: do not hardcode
-        #     epochs=100,  # TODO: do not hardcode
+        #     max_lr=1e-3,
+        #     steps_per_epoch=28,  # TODO: do not hardcode
+        #     epochs=200,  # TODO: do not hardcode
         # )
         return {
             "optimizer": optimizer,
-            "lr_scheduler": scheduler,
-            "monitor": "val/f1",
+            # "lr_scheduler": scheduler,
+            # "monitor": "val/f1",
         }
 
     def evaluate(
@@ -137,6 +138,11 @@ class BaseMultilabelClassifier(pl.LightningModule):
                 },
                 sync_dist=True,
             )
+        # if self.training:
+        #     loss.backward()
+        #     for name, param in self.named_parameters():
+        #         if param.grad is None:
+        #             print(name)
         return loss
 
     def on_train_start(self):
