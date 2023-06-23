@@ -13,17 +13,17 @@ from transformers.activations import get_activation
 from acc23.constants import IMAGE_SIZE, N_CHANNELS, N_FEATURES, N_TRUE_TARGETS
 
 from .base_mlc import BaseMultilabelClassifier
-from .layers import concat_tensor_dict
+from .layers import MLP, concat_tensor_dict
 from .transformers import CoAttentionVisionTransformer
 
 
 class Norway(BaseMultilabelClassifier):
     """See module documentation"""
 
-    tabular_encoder: nn.Module  # Dense input branch
+    tat: nn.Module  # Dense input branch
     pooling: nn.Module
-    vision_transformer: nn.Module
-    main_branch: nn.Module  # Merge branch
+    vit: nn.Module
+    mlp_head: nn.Module  # Merge branch
 
     def __init__(
         self,
@@ -38,26 +38,24 @@ class Norway(BaseMultilabelClassifier):
         patch_size: int = 16,
         n_transformers: int = 16,
         n_heads: int = 8,
-        dropout: float = 0.1,
+        dropout: float = 0,
         activation: str = "gelu",
-        pooling: bool = False,
+        pooling: bool = True,
+        mlp_dim: int = 4096,
         **kwargs,
     ) -> None:
         super().__init__(**kwargs)
         self.save_hyperparameters()
         nc, s, _ = image_shape
-        self.tabular_encoder = nn.Sequential(
-            nn.Linear(n_features, 2 * embed_dim),
-            nn.LayerNorm(2 * embed_dim),
-            get_activation(activation),
-            nn.Dropout(dropout),
-            nn.Linear(2 * embed_dim, embed_dim),
-            nn.LayerNorm(embed_dim),
-            get_activation(activation),
-            nn.Dropout(dropout),
+        self.tat = MLP(
+            in_dim=n_features,
+            hidden_dims=[mlp_dim, embed_dim],
+            dropout=dropout,
+            activation=activation,
+            is_head=False,
         )
         self.pooling = nn.MaxPool2d(7, 2, 3) if pooling else nn.Identity()
-        self.vision_transformer = CoAttentionVisionTransformer(
+        self.vit = CoAttentionVisionTransformer(
             patch_size=patch_size,
             input_shape=((nc, s // 2, s // 2) if pooling else (nc, s, s)),
             embed_dim=embed_dim,
@@ -68,12 +66,12 @@ class Norway(BaseMultilabelClassifier):
             activation=activation,
             headless=True,
         )
-        self.main_branch = nn.Sequential(
-            nn.Linear(3 * embed_dim, embed_dim),
-            nn.LayerNorm(embed_dim),
-            get_activation(activation),
-            nn.Dropout(dropout),
-            nn.Linear(embed_dim, out_dim),
+        self.mlp_head = MLP(
+            in_dim=2 * embed_dim,
+            hidden_dims=[mlp_dim, out_dim],
+            dropout=dropout,
+            activation=activation,
+            is_head=True,
         )
         self.example_input_array = (
             torch.zeros((32, n_features)),
@@ -101,8 +99,7 @@ class Norway(BaseMultilabelClassifier):
             x = concat_tensor_dict(x)
         x = x.float().to(self.device)  # type: ignore
         img = img.to(self.device)  # type: ignore
-        a = self.tabular_encoder(x)
-        b, c = self.vision_transformer(self.pooling(img), a)
-        d = torch.concatenate([a, b, c], dim=-1)
-        c = self.main_branch(d)
-        return c
+        a, b = self.pooling(img), self.tat(x)
+        a, b = self.vit(a, b)
+        ab = torch.concatenate([a, b], dim=-1)
+        return self.mlp_head(ab)
