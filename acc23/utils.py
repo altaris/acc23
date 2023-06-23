@@ -5,16 +5,29 @@ import os
 import re
 from glob import glob
 from pathlib import Path
-from typing import List, Optional, Union
+from typing import Any, List, Optional, Type, Union
 
 import pytorch_lightning as pl
 import torch
 from loguru import logger as logging
 from pytorch_lightning.strategies import Strategy
+from pytorch_lightning.utilities import rank_zero_only
 
 
 class NoCheckpointFound(Exception):
     """Raised by `tdt.utils.last_checkpoint_path` if no checkpoint is found"""
+
+
+@rank_zero_only
+def _load_from_checkpoint(
+    cls: Type[pl.LightningModule], path: Union[str, Path], **kwargs: Any
+) -> pl.LightningModule:
+    """
+    Convenience function to load a module checkpoint only in rank 0. In
+    other ranks, the wrapped function returns `None`
+    """
+    logging.debug("Loading checkpoint '{}'", path)
+    return cls.load_from_checkpoint(path, **kwargs)
 
 
 def best_device() -> str:
@@ -139,6 +152,17 @@ def train_model(
         name=name,
     )
 
+    if (
+        model.hparams.get("swa_lr") is not None
+        and model.hparams.get("swa_epoch") is not None
+    ):
+        additional_callbacks.append(
+            pl.callbacks.StochasticWeightAveraging(
+                swa_lrs=model.hparams["swa_lr"],
+                swa_epoch_start=model.hparams["swa_epoch"],
+            ),
+        )
+
     trainer = pl.Trainer(
         max_epochs=max_epochs,
         callbacks=[
@@ -150,7 +174,6 @@ def train_model(
                 save_weights_only=True,
             ),
             pl.callbacks.RichProgressBar(),
-            # pl.callbacks.BatchSizeFinder(),
             *additional_callbacks,
         ],
         default_root_dir=str(root_dir),
@@ -161,7 +184,6 @@ def train_model(
     )
 
     trainer.fit(model, datamodule=datamodule)
-    # ckpt = str(trainer.checkpoint_callback.best_model_path)  # type: ignore
-    # logging.debug("Loading best checkpoint '{}'", ckpt)
-    # model = type(model).load_from_checkpoint(ckpt)  # type: ignore
-    return model
+
+    ckpt = str(trainer.checkpoint_callback.best_model_path)  # type: ignore
+    return _load_from_checkpoint(type(model), ckpt) or model
