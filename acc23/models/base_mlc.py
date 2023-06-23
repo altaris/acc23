@@ -1,7 +1,7 @@
 """Base class for multilabel classifiers"""
 __docformat__ = "google"
 
-from typing import Any, Dict, Literal, Optional
+from typing import Any, Dict, Literal, Optional, Union
 
 import numpy as np
 import pytorch_lightning as pl
@@ -27,11 +27,13 @@ class BaseMultilabelClassifier(pl.LightningModule):
     # pylint: disable=unused-argument
     def __init__(
         self,
-        lr: float = 1e-4,
-        weight_decay: float = 5e-3,
+        lr: float = 5e-4,
+        weight_decay: float = 0.0,
         loss_function: Literal[
             "bce", "irlbl_bce", "focal", "db", "mse"
         ] = "db",
+        swa_lr: Optional[float] = None,  # 1e-3,
+        swa_epoch: Optional[Union[int, float]] = None,  # 10,
         **kwargs,
     ) -> None:
         super().__init__(**kwargs)
@@ -138,12 +140,13 @@ class BaseMultilabelClassifier(pl.LightningModule):
                 },
                 sync_dist=True,
             )
-        # if self.training:
-        #     loss.backward()
-        #     for name, param in self.named_parameters():
-        #         if param.grad is None:
-        #             print(name)
         return loss
+
+    # Uncomment this to find ununsed parameters
+    # def on_after_backward(self) -> None:
+    #     for n, p in self.named_parameters():
+    #         if p.grad is None:
+    #             logging.warning("Weight '{}' does not have a gradient!", n)
 
     def on_train_start(self):
         # https://lightning.ai/docs/pytorch/latest/extensions/logging.html#logging-hyperparameters

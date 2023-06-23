@@ -42,8 +42,8 @@ class London(BaseMultilabelClassifier):
         dropout: float = 0.5,
         activation: str = "gelu",
         mlp_dim: int = 4096,
-        pooling: bool = False,
-        fine_tune_vit: bool = True,
+        # pooling: bool = False,
+        freeze_vit: bool = True,
         **kwargs: Any,
     ) -> None:
         super().__init__(**kwargs)
@@ -69,15 +69,13 @@ class London(BaseMultilabelClassifier):
         #         num_channels=nc,
         #         patch_size=patch_size,
         #     ),
-        #     add_pooling_layer=pooling,
+        #     add_pooling_layer=False,
         # )
         self.vit = ViTModel.from_pretrained(
             "google/vit-base-patch16-224-in21k"
         )
-        if fine_tune_vit:
-            for p in self.vit.parameters():
-                p.requires_grad = False
-        elif not pooling and self.vit.pooler is not None:
+        self.vit.requires_grad_(not freeze_vit)
+        if self.vit.pooler is not None:
             self.vit.pooler.requires_grad_(False)
         if not isinstance(self.vit, ViTModel):
             raise RuntimeError(

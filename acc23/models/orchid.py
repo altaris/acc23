@@ -74,13 +74,13 @@ class Orchid(BaseMultilabelClassifier):
         out_dim: int = N_TRUE_TARGETS,
         embed_dim: int = 512,
         # patch_size: int = 8,
-        n_transformers: int = 12,
-        n_heads: int = 12,
-        dropout: float = 0.2,
+        n_transformers: int = 16,
+        n_heads: int = 8,
+        dropout: float = 0.0,
         activation: str = "gelu",
         mlp_dim: int = 4096,
-        pooling: bool = False,
-        fine_tune_vit: bool = True,
+        # pooling: bool = False,
+        freeze_vit: bool = False,
         **kwargs: Any,
     ) -> None:
         super().__init__(**kwargs)
@@ -112,13 +112,11 @@ class Orchid(BaseMultilabelClassifier):
         #         num_channels=nc,
         #         patch_size=patch_size,
         #     ),
-        #     add_pooling_layer=pooling,
+        #     add_pooling_layer=False,
         # )
         self.vit = ViTModel.from_pretrained("google/vit-base-patch16-224-in21k")
-        if fine_tune_vit:
-            for p in self.vit.parameters():
-                p.requires_grad = False
-        elif not pooling and self.vit.pooler is not None:
+        self.vit.requires_grad_(not freeze_vit)
+        if self.vit.pooler is not None:
             self.vit.pooler.requires_grad_(False)
         if not isinstance(self.vit, ViTModel):
             raise RuntimeError(
