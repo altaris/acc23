@@ -12,7 +12,8 @@ from loguru import logger as logging
 from PIL import Image, ImageFile
 from rich.progress import track
 from sklearn.base import TransformerMixin
-from sklearn.impute import KNNImputer
+from sklearn.experimental import enable_iterative_imputer
+from sklearn.impute import IterativeImputer, KNNImputer
 from sklearn.preprocessing import (
     FunctionTransformer,
     MultiLabelBinarizer,
@@ -193,17 +194,19 @@ def impute_dataframe_2(
         )
     if imputer_path is not None:
         tb.set_artifact_path(Path(imputer_path).parent)
-    if imputer_path is not None and Path(imputer_path).is_file():
-        logging.debug("Loading imputer from '{}'", imputer_path)
-        imputer = tb.load_json(imputer_path)
+        if Path(imputer_path).is_file():
+            logging.debug("Loading imputer from '{}'", imputer_path)
+            imputer = tb.load_json(imputer_path)
     else:
-        logging.debug("Fitting imputer")
-        imputer = KNNImputer().fit(df.to_numpy())
+        # imputer = KNNImputer().fit(df.to_numpy())
+        imputer = IterativeImputer().fit(df.to_numpy())
+        logging.debug("Fitting imputer ({})", imputer.__class__.__name__)
         if imputer_path is not None:
             logging.debug("Saving imputer to '{}'", imputer_path)
             tb.save_json(imputer, imputer_path)
     df = pd.DataFrame(
-        data=imputer.transform(df.to_numpy()), columns=df.columns
+        data=imputer.transform(df.to_numpy()),
+        columns=df.columns,
     )
     if has_tgts:
         df[TARGETS] = df_tgt
