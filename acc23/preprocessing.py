@@ -400,9 +400,11 @@ def load_csv(
 
 def load_image(
     path: Union[str, Path],
+    preserve_aspect_ratio: bool = False,
+    image_mean: Optional[float] = None,
     image_std: Optional[float] = None,
     noise_std: Optional[float] = None,
-    positional_encoding_weight: Optional[float] = None,
+    pe_weight: Optional[float] = None,
 ) -> Tensor:
     """
     Convenience function to load an PNG or BMP image. The returned image tensor
@@ -413,12 +415,15 @@ def load_image(
 
     Args:
         path (Union[str, Path]):
-        image_std (Optional[float]): Set to `None` to skip image normalization,
-            in which case the image is simply scaled to $[0, 1]$
+        preserve_aspect_ratio (bool):
+        image_mean (Optional[float]): Set to `None` to skip image
+            normalization, in which case the image is simply scaled to $[0, 1]$
+        image_std (Optional[float]): If `image_mean` is specified, this
+            argument must be specified too
         noise_std (Optional[float]): Set to `None` to not add Gaussian noise to
             the image
-        positional_encoding_weight (Optional[float]): Set to `None` to not add
-            positional encoding to the image
+        pe_weight (Optional[float]): Set to `None` to not add positional
+            encoding to the image
     """
     # See https://pillow.readthedocs.io/en/latest/handbook/concepts.html#concept-modes
     fmts = {1: "L", 3: "RGB", 4: "RGBA"}
@@ -431,19 +436,26 @@ def load_image(
     raw = Image.open(Path(path)).convert(fmts[N_CHANNELS])
     img = torch.tensor(np.asarray(raw), dtype=torch.float32)  # (W, H, C)
     img = img.permute(2, 1, 0)  # (C, H, W)
-    padded_size = 1400
-    c, h, w = img.shape
-    img = pad(img, (0, 0, padded_size - w, padded_size - h))
+    c = img.shape[0]
+    if preserve_aspect_ratio:
+        padded_size = 1400
+        _, h, w = img.shape
+        img = preserve_aspect_ratio(img, (0, 0, padded_size - w, padded_size - h))
     img = resize(img, (IMAGE_SIZE, IMAGE_SIZE), antialias=True)
-    if image_std:
-        img = normalize(img, [0] * c, [image_std] * c)
+    if (image_mean is not None) and (image_std is not None):
+        img = normalize(img, [image_mean] * c, [image_std] * c)
     else:
+        if (image_mean is not None) or (image_std is not None):
+            logging.warning(
+                "One of image_mean or image_std is None but not the other. To "
+                "normalize the image, be sure to specify both. Scaling instead"
+            )
         img = (img - img.min()) / (img.max() - img.min() + 1e-5)
-    if noise_std:
+    if noise_std is not None and noise_std > 0:
         img += torch.randn_like(img) * noise_std
-    if positional_encoding_weight:
+    if pe_weight is not None and pe_weight > 0:
         pe = positional_encoding(img.shape[1])
-        pe = pe.repeat(c, 1, 1) * positional_encoding_weight
+        pe = pe.repeat(c, 1, 1) * pe_weight
         # pe = torch.where(img.sum(dim=0) == 0, pe, 0)  # pe only in padding
         img += pe
     return img
