@@ -6,6 +6,7 @@ __docformat__ = "google"
 
 from .constants import *
 from .dataset import ACCDataModule, ACCDataset
+from .explain import VitExplainer, imshow
 from .mlsmote import irlbl, mlsmote, remedial
 from .models import *
 from .postprocessing import (
