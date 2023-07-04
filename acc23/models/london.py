@@ -4,7 +4,7 @@ convolutional branch is a vision transformer
 """
 __docformat__ = "google"
 
-from typing import Any, Dict, Tuple, Union
+from typing import Any, Dict, Literal, Tuple, Union
 
 import torch
 from torch import Tensor, nn
@@ -35,15 +35,14 @@ class London(BaseMultilabelClassifier):
             IMAGE_SIZE,
         ),
         out_dim: int = N_TRUE_TARGETS,
-        embed_dim: int = 512,
-        # patch_size: int = 8,
-        # n_transformers: int = 16,
-        # n_heads: int = 8,
-        dropout: float = 0.5,
+        embed_dim: int = 128,
+        patch_size: int = 8,
+        n_transformers: int = 16,
+        n_heads: int = 8,
+        dropout: float = 0.1,
         activation: str = "gelu",
-        mlp_dim: int = 4096,
-        # pooling: bool = False,
-        freeze_vit: bool = True,
+        mlp_dim: int = 2048,
+        vit: Literal["new", "pretrained", "frozen"] = "pretrained",
         **kwargs: Any,
     ) -> None:
         super().__init__(**kwargs)
@@ -56,39 +55,44 @@ class London(BaseMultilabelClassifier):
             activation=activation,
             is_head=False,
         )
-        # self.vit = ViTModel(
-        #     config=ViTConfig(
-        #         hidden_size=embed_dim,
-        #         num_hidden_layers=n_transformers,
-        #         num_attention_heads=n_heads,
-        #         intermediate_size=mlp_dim,
-        #         hidden_act=activation,
-        #         hidden_dropout_prob=dropout,
-        #         attention_probs_dropout_prob=dropout,
-        #         image_size=s,
-        #         num_channels=nc,
-        #         patch_size=patch_size,
-        #     ),
-        #     add_pooling_layer=False,
-        # )
-        self.vit = ViTModel.from_pretrained(
-            "google/vit-base-patch16-224-in21k"
-        )
-        self.vit.requires_grad_(not freeze_vit)
-        if self.vit.pooler is not None:
-            self.vit.pooler.requires_grad_(False)
-        if not isinstance(self.vit, ViTModel):
-            raise RuntimeError(
-                "Pretrained ViT is not a transformers.ViTModel object"
+        if vit == "new":
+            self.vit = ViTModel(
+                config=ViTConfig(
+                    hidden_size=embed_dim,
+                    num_hidden_layers=n_transformers,
+                    num_attention_heads=n_heads,
+                    intermediate_size=mlp_dim,
+                    hidden_act=activation,
+                    hidden_dropout_prob=dropout,
+                    attention_probs_dropout_prob=dropout,
+                    image_size=s,
+                    num_channels=nc,
+                    patch_size=patch_size,
+                ),
+                add_pooling_layer=False,
             )
-        if not isinstance(self.vit.config, ViTConfig):
-            raise RuntimeError(
-                "Pretrained ViT confit is not a transformers.ViTConfig object"
+            self.vit_resize = nn.Identity()
+            self.vit_proj = nn.Identity()
+        else:
+            self.vit = ViTModel.from_pretrained("google/vit-base-patch16-224")
+            self.vit.requires_grad_(vit != "frozen")
+            if self.vit.pooler is not None:
+                self.vit.pooler.requires_grad_(False)
+            if not isinstance(self.vit, ViTModel):
+                raise RuntimeError(
+                    "Pretrained ViT is not a transformers.ViTModel object"
+                )
+            if not isinstance(self.vit.config, ViTConfig):
+                raise RuntimeError(
+                    "Pretrained ViT confit is not a transformers.ViTConfig "
+                    "object"
+                )
+            self.vit_resize = Resize(
+                self.vit.config.image_size, antialias=True
             )
-        self.vit_resize = Resize(self.vit.config.image_size, antialias=True)
-        self.vit_proj = nn.Linear(
-            self.vit.config.hidden_size, embed_dim, bias=False
-        )
+            self.vit_proj = nn.Linear(
+                self.vit.config.hidden_size, embed_dim, bias=False
+            )
         self.mlp_head = MLP(
             in_dim=2 * embed_dim,
             hidden_dims=[mlp_dim, out_dim],

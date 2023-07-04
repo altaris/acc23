@@ -78,9 +78,9 @@ class Orchid(BaseMultilabelClassifier):
         n_heads: int = 8,
         dropout: float = 0.1,
         activation: str = "gelu",
-        mlp_dim: int = 4096,
+        mlp_dim: int = 2048,
         # pooling: bool = False,
-        freeze_vit: bool = False,
+        # freeze_vit: bool = False,
         vit: Literal["new", "pretrained", "frozen"] = "pretrained",
         **kwargs: Any,
     ) -> None:
@@ -122,7 +122,7 @@ class Orchid(BaseMultilabelClassifier):
             self.vit = ViTModel.from_pretrained(
                 "google/vit-base-patch16-224-in21k"
             )
-            self.vit.requires_grad_(not freeze_vit)
+            self.vit.requires_grad_(vit != "frozen")
             if self.vit.pooler is not None:
                 self.vit.pooler.requires_grad_(False)
             if not isinstance(self.vit, ViTModel):

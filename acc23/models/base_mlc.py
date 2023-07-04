@@ -27,8 +27,8 @@ class BaseMultilabelClassifier(pl.LightningModule):
     # pylint: disable=unused-argument
     def __init__(
         self,
-        lr: float = 5e-4,
-        weight_decay: float = 0.0,
+        lr: float = 1e-4,
+        weight_decay: float = 1e-2,
         loss_function: Literal[
             "bce", "irlbl_bce", "focal", "db", "mse"
         ] = "db",
@@ -45,12 +45,12 @@ class BaseMultilabelClassifier(pl.LightningModule):
             lr=self.hparams["lr"],
             weight_decay=self.hparams["weight_decay"],
         )
-        # scheduler = optim.lr_scheduler.ReduceLROnPlateau(
-        #     optimizer,
-        #     mode="max",
-        #     factor=0.5,
-        #     patience=5,
-        # )
+        scheduler = optim.lr_scheduler.ReduceLROnPlateau(
+            optimizer,
+            mode="max",
+            factor=0.5,
+            patience=5,
+        )
         # scheduler = optim.lr_scheduler.OneCycleLR(
         #     optimizer,
         #     max_lr=1e-3,
@@ -59,8 +59,8 @@ class BaseMultilabelClassifier(pl.LightningModule):
         # )
         return {
             "optimizer": optimizer,
-            # "lr_scheduler": scheduler,
-            # "monitor": "val/f1",
+            "lr_scheduler": scheduler,
+            "monitor": "val/loss",
         }
 
     def evaluate(

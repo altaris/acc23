@@ -116,7 +116,9 @@ class ACCDataModule(pl.LightningDataModule):
         knn = KNNImputer().fit(c.to_numpy())
         tb.set_artifact_path(self.data_cache_path)
         tb.save_json(knn, self.data_cache_path / "imputer.json")
-        logging.warning("Done quick&dirty knn fit. Refactor that soon ok?")
+        logging.warning(
+            "Done quick & dirty imputer fit. Refactor that soon ok?"
+        )
 
         dfs: Dict[str, pd.DataFrame] = {}
         dfs["test"] = load_csv(  # TODO: Dehardcode
@@ -130,8 +132,8 @@ class ACCDataModule(pl.LightningDataModule):
             path=self.train_csv_file_path,
             impute=True,
             imputer_path=self.data_cache_path / "imputer.json",
-            drop_nan_targets=True,
-            oversample=True,
+            drop_nan_targets=False,
+            oversample=False,
         )
         dfs["pred"] = load_csv(  # TODO: Dehardcode
             path=self.test_csv_file_path,
@@ -140,7 +142,7 @@ class ACCDataModule(pl.LightningDataModule):
             drop_nan_targets=False,  # There are no targets in pred ds =)
             oversample=False,
         )
-        n, split_ratio = len(df_tv), 0.9  # TODO: Dehardcode
+        n, split_ratio = len(df_tv), 0.8  # TODO: Dehardcode
         idxs, m = torch.randperm(n), int(split_ratio * n)
         dfs["train"], dfs["val"] = df_tv.iloc[idxs[:m]], df_tv.iloc[idxs[m:]]
         for k, df in dfs.items():
