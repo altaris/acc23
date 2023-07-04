@@ -8,7 +8,6 @@ from typing import Dict, Tuple, Union
 
 import torch
 from torch import Tensor, nn
-from transformers.activations import get_activation
 
 from acc23.constants import IMAGE_SIZE, N_CHANNELS, N_FEATURES, N_TRUE_TARGETS
 
@@ -34,14 +33,14 @@ class Norway(BaseMultilabelClassifier):
             IMAGE_SIZE,
         ),
         out_dim: int = N_TRUE_TARGETS,
-        embed_dim: int = 512,
+        embed_dim: int = 128,
         patch_size: int = 16,
-        n_transformers: int = 16,
+        n_transformers: int = 8,
         n_heads: int = 8,
-        dropout: float = 0,
+        dropout: float = 0.1,
         activation: str = "gelu",
-        pooling: bool = True,
-        mlp_dim: int = 4096,
+        pooling: bool = False,
+        mlp_dim: int = 2048,
         **kwargs,
     ) -> None:
         super().__init__(**kwargs)
@@ -62,12 +61,12 @@ class Norway(BaseMultilabelClassifier):
             out_dim=embed_dim,
             num_transformers=n_transformers,
             num_heads=n_heads,
-            dropout=dropout,
+            dropout=0.1,
             activation=activation,
             headless=True,
         )
         self.mlp_head = MLP(
-            in_dim=2 * embed_dim,
+            in_dim=3 * embed_dim,
             hidden_dims=[mlp_dim, out_dim],
             dropout=dropout,
             activation=activation,
@@ -100,6 +99,6 @@ class Norway(BaseMultilabelClassifier):
         x = x.float().to(self.device)  # type: ignore
         img = img.to(self.device)  # type: ignore
         a, b = self.pooling(img), self.tat(x)
-        a, b = self.vit(a, b)
-        ab = torch.concatenate([a, b], dim=-1)
-        return self.mlp_head(ab)
+        a, c = self.vit(a, b)
+        abc = torch.concatenate([a, b, c], dim=-1)
+        return self.mlp_head(abc)
