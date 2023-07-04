@@ -404,8 +404,8 @@ def load_csv(
 def load_image(
     path: Union[str, Path],
     preserve_aspect_ratio: bool = False,
-    image_mean: Optional[float] = None,
-    image_std: Optional[float] = None,
+    image_mean: Optional[float] = 0.5,
+    image_std: Optional[float] = 0.5,
     noise_std: Optional[float] = None,
     pe_weight: Optional[float] = None,
 ) -> Tensor:
@@ -443,7 +443,7 @@ def load_image(
     if preserve_aspect_ratio:
         padded_size = 1400
         _, h, w = img.shape
-        img = preserve_aspect_ratio(img, (0, 0, padded_size - w, padded_size - h))
+        img = pad(img, (0, 0, padded_size - w, padded_size - h))
     img = resize(img, (IMAGE_SIZE, IMAGE_SIZE), antialias=True)
     if (image_mean is not None) and (image_std is not None):
         img = normalize(img, [image_mean] * c, [image_std] * c)
