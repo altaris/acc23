@@ -8,16 +8,30 @@ See also:
 """
 __docformat__ = "google"
 
-from typing import Any, List, Literal, Tuple, Union
+from typing import Any, Callable, List, Literal, Tuple, Union
 
 import cv2
 import numpy as np
 import torch
 from matplotlib import pyplot as plt
 from matplotlib.image import AxesImage
+from rich.progress import track
 from torch import Tensor, nn, utils
 from torchvision.transforms.functional import resize
 from transformers.models.vit.modeling_vit import ViTModel, ViTSelfAttention
+
+
+def batch_forward(
+    module: Callable[[Tensor], Tensor], x: Tensor, batch_size: int = 128
+):
+    """
+    Batched call to a callable that takes and returns a tensor (e.g. a model)
+    """
+    if len(x) <= batch_size:
+        return module(x)
+    y = [module(b) for b in track(x.split(batch_size))]
+    # y = list(map(module, x.split(batch_size)))
+    return torch.cat(y)
 
 
 def imshow(img: Union[Tensor, np.ndarray]) -> AxesImage:
@@ -38,7 +52,61 @@ def imshow(img: Union[Tensor, np.ndarray]) -> AxesImage:
         if img.ndim == 3:
             img = img.permute(1, 2, 0)
         img = img.numpy()
+    img = (img - img.min()) / (img.max() - img.min() + 1e-5)
     return plt.imshow(img)
+
+
+def shap(
+    module: Callable[[Tensor], Tensor],
+    data: Tensor,
+    n_samples: int = 10,
+    batch_size: int = 128,
+) -> Tensor:
+    """
+    Model-agnostic Monte-Carlo SHAP values
+
+    Args:
+        module (Callable[[Tensor], Tensor]): A model that takes a `(N, F)`
+            tensor, where `F` is the number of features, and outputs an `(N,
+            T)` tensor where `F` is the number of targets/labels
+        data (Tensor): A `(N, F)` tensor
+        n_samples (int):
+        batch_size (int): The model will be evaluated `2 * n_samples * F * N`
+            times, so this needs to be batched.
+
+    Returns:
+        A `(N, F, T)` tensor
+    """
+
+    def _forward_4(x: Tensor):
+        a, b, c, d = x.shape
+        u = x.reshape(a * b * c, d)
+        y = batch_forward(module, u, batch_size=batch_size)
+        return y.reshape(a, b, c, -1)
+
+    n_rows, n_features = data.shape
+    means = data.mean(dim=0).repeat([n_samples, n_features, n_rows, 1])
+    data = data.repeat([n_samples, n_features, 1, 1])
+    mask = torch.randint(0, 2, (n_samples, 1, n_rows, n_features))
+    mask = mask.repeat([1, n_features, 1, 1])
+
+    mf = torch.eye(n_features)
+    mf = mf.repeat([1, n_rows])
+    mf = mf.reshape(1, n_features, n_rows, n_features)
+    mf = mf.repeat([n_samples, 1, 1, 1])
+
+    ma = (mask - mf).clamp(0, 1)
+    xa = data * ma + means * (1 - ma)
+    ya = _forward_4(xa)
+
+    mb = (mask + mf).clamp(0, 1)
+    xb = data * mb + means * (1 - mb)
+    yb = _forward_4(xb)
+
+    d = yb - ya
+    d = d.mean(dim=0)
+    d = d.permute(1, 0, 2)
+    return d
 
 
 # pylint: disable=no-member
@@ -93,10 +161,7 @@ class VitExplainer:
         self.mask_weight, self.vit = mask_weight, vit
         self._attentions, self._hook_handles = [], []
 
-    def _explain_one(
-        self,
-        img: Tensor,
-    ) -> Tuple[Tensor, Tensor]:
+    def _explain_one(self, img: Tensor) -> Tuple[Tensor, Tensor]:
         """
         Only call this after `_register_hooks` so that the attention tensors
         are stored in `_attentions`.
