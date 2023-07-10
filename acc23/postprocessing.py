@@ -1,8 +1,7 @@
 """
 Everything related to post processing, i.e. going from the raw outputs of a
-model to a submittable csv file
+model to a submittable csv file.
 """
-__docformat__ = "google"
 
 import json
 from pathlib import Path
@@ -39,7 +38,9 @@ def eval_on_test_dataset(
     Args:
         model (pl.LightningModule):
         dm (pl.LightningDataModule):
-        root_dir (Union[str, Path]): For Pytorch Lightning use
+        root_dir (Union[str, Path]): For Pytorch Lightning use. Just choose a
+            directory somewhere in your output folder and delete it when you
+            are done.
         raw_test_csv_file_path (Union[str, Path]): Path to the competition
             `test.csv` (most likely `data/test.csv`). This is used to get the
             `trustii_id` colunm.
@@ -69,8 +70,12 @@ def eval_on_train_dataset(
 
     Args:
         model (pl.LightningModule):
-        dm (pl.LightningDataModule):
-        root_dir (Union[str, Path]): For Pytorch Lightning use
+        dm (pl.LightningDataModule): Datamodule (presumably
+            `acc23.dataset.ACCDataModule`) that has not been `setup`'d, and has
+            a `test` mode
+        root_dir (Union[str, Path]): For Pytorch Lightning use. Just choose a
+            directory somewhere in your output folder and delete it when you
+            are done.
     """
     trainer = pl.Trainer(
         callbacks=[pl.callbacks.RichProgressBar()],
@@ -109,13 +114,10 @@ def eval_on_train_dataset(
 
 def output_to_dataframe(y: Tensor) -> pd.DataFrame:
     """
-    Converts a raw model output logits, which is a `(N, TT)` tensor, with `TT`
-    being the number of true targets (see `acc23.preprocessing.TRUE_TARGETS`),
+    Converts a raw model output logits, which is a `(N, N_TRUE_TARGETS)` tensor
     to a pandas dataframe. The 'fake' targets of `acc23.preprocessing.TARGETS`
     are recalculated here. The `trustii_id` and `Patient_ID` columns are not
-    added.
-
-    The order of the target columns is the same as the order in
+    added. The order of the target columns is the same as the order in
     `acc23.preprocessing.TARGETS`.
     """
     arr = y.cpu().detach().numpy()

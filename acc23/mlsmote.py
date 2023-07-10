@@ -6,7 +6,6 @@ MLSMOTE oversampling algorithm from
     http://dx.doi.org/10.1016/j.knosys.2015.07.019
 
 """
-__docformat__ = "google"
 from typing import List, Literal, Union
 
 import numpy as np
@@ -107,7 +106,14 @@ def _prevalence_summary(
 
 def irlbl(targets: Union[pd.DataFrame, np.ndarray]) -> np.ndarray:
     """
-    IRLbl imbalance score.
+    IRLbl imbalance score. See for example the MLSMOTE paper, or section 2.2 of
+
+        Francisco Charte, Antonio J. Rivera, María J. del Jesus, Francisco
+        Herrera, Dealing with difficult minority labels in imbalanced mutilabel
+        data sets, Neurocomputing, Volumes 326-327, 2019, Pages 39-53, ISSN
+        0925-2312, https://doi.org/10.1016/j.neucom.2016.08.158.
+        (https://www.sciencedirect.com/science/article/pii/S0925231217315321)
+
 
     Args:
         df (Union[pd.DataFrame, np.ndarray]): Target / labels dataframe
@@ -140,15 +146,18 @@ def mlsmote(
     `None`.
 
     Args:
-        df (pd.DataFrame):
-        targets (List[str]):
+        df (pd.DataFrame): May contain non-numerical features. They are set
+            aside before sample generation. New samples will have `NaN` for
+            these features.
+        targets (List[str]): Name of the target columns
         n_neighbors (int):
         sampling_factor (Union[int, Literal["irlbl"]]): In the MLSMOTE stage,
             for each minority bag `b`, will generate `sampling_factor * len(b)`
             synthetic samples. If `sampling_factor` is `irlbl`, the (rounded)
             IRLbl score will be used as factor.
         apply_remedial (bool): Whether to apply REMEDIAL before oversampling
-        remedial_threshold (Union[int, Literal["mean"]]): See `remedial`
+        remedial_threshold (Union[int, Literal["mean"]]): See
+            `acc23.mlsmote.remedial`
 
     Warning:
         Numerical columns must not contain `NaN`s
@@ -199,7 +208,7 @@ def remedial(
 
     Args:
         df (pd.DataFrame):
-        targets (List[str]):
+        targets (List[str]): Name of the target columns
         threshold (Union[int, Literal["mean"]]): Either a percentile (between 0
             and 100) or the literal `"mean"`.
     """
@@ -228,22 +237,23 @@ def scumble(targets: Union[pd.DataFrame, np.ndarray]) -> np.ndarray:
 
     The returned array contains the score of each individual sample. The score
     of a sample is contained in $[0, 1]$. A higher score means that the sample
-    containes both majority and minority labels. To obtain the SCRUMBLE score
-    of the while dataset, simply take the mean of the returned array.
+    contains both majority and minority labels. To obtain the SCRUMBLE score of
+    the whole dataset, simply take the mean of the returned array.
 
     Args:
-        targets (Union[pd.DataFrame, np.ndarray]): Target / labels dataframe.
+        targets (Union[pd.DataFrame, np.ndarray]): Dataframe or array
+            containing only the target columns.
 
     Returns:
         A numpy array of shape `(n_samples,)`
 
     Warning:
-        The paper's SCUMBLE formula is wrong... This implementation is base on
-        the R implementation
-        https://github.com/fcharte/mldr/blob/master/R/measures.R#L67
+        The paper's SCUMBLE formula is wrong... This implementation is based on
+        [the R
+        implementation](https://github.com/fcharte/mldr/blob/master/R/measures.R#L67)
         Incidentally, all papers I could find using SCUMBLE and citing the
         paper above also have the formula wrong. But don't forget, pEEr ReVieW
-        ENsuuuUUUUuREs PapER QuALIty.
+        ENsuUREs PapER QuALIty.
     """
 
     def div(

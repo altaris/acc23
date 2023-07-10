@@ -1,80 +1,64 @@
-"""
-ACC23 main multi-classification model: prototype "Ampere". This is perhaps the
-simplest deep neural network attempt at the problem. The image is fed through a
-stack of convolutional layers, called the _convolutional input branch_. The
-data corresponding to the image is fed through another branch made of dense
-(aka linear) layers, unsurprisingly called the _dense input branch_. Then, the
-(flattened) encoded image and latent representation of the data are
-concatenated and fed through yet another dense stack, which produces the
-output. This is called the _merge branch_.
-"""
-__docformat__ = "google"
+"""ACC23 model prototype *Ampere*"""
 
 from typing import Any, Dict, Union
 
 import torch
 from torch import Tensor, nn
+from transformers.models.resnet.modeling_resnet import ResNetConvLayer
 
 from acc23.constants import IMAGE_SIZE, N_CHANNELS, N_FEATURES, N_TRUE_TARGETS
 
-from .layers import (
-    ResNetEncoderLayer,
-    concat_tensor_dict,
-    ResNetLinearLayer,
-)
 from .base_mlc import BaseMultilabelClassifier
+from .layers import MLP, concat_tensor_dict
 
 
 class Ampere(BaseMultilabelClassifier):
-    """See module documentation"""
+    """
+    This is perhaps the simplest deep neural network attempt at the problem.
+    The image is fed through a stack of convolutional layers. The tabular data
+    is fed through another branch made of dense layers. Then the result of both
+    branches are concatenated and fed through the MLP head.
+    """
 
-    _module_a: nn.Module  # Dense input branch
-    _module_b: nn.Module  # Conv. input branch
-    _module_c: nn.Module  # Merge branch
+    _tab_mlp: nn.Module
+    _conv_stack: nn.Module
+    _mlp_head: nn.Module
 
-    def __init__(self, *args: Any, **kwargs: Any) -> None:
-        super().__init__(*args, **kwargs)
+    def __init__(
+        self, embed_dim: int = 256, activation: str = "gelu", **kwargs: Any
+    ) -> None:
+        """
+        Args:
+            embed_dim (int, optional):
+            activation (str, optional):
+
+        See also:
+            `acc23.models.base_mlc.BaseMultilabelClassifier.__init__`
+        """
+        super().__init__(**kwargs)
         self.save_hyperparameters()
-        d = 256
-        self._module_b = nn.Sequential(
-            nn.MaxPool2d(5, 1, 2),
-            ResNetEncoderLayer(N_CHANNELS, 8),  # IMAGE_RESIZE_TO = 512 -> 256
-            ResNetEncoderLayer(8, 8),  # -> 128
-            ResNetEncoderLayer(8, 16),  # -> 64
-            ResNetEncoderLayer(16, 16),  # -> 32
-            ResNetEncoderLayer(16, 32),  # -> 16
-            ResNetEncoderLayer(32, 32),  # -> 8
-            ResNetEncoderLayer(32, 64),  # -> 4
-            ResNetEncoderLayer(64, 128),  # -> 2
-            ResNetEncoderLayer(128, d),  # -> 1
+        kw = {"kernel_size": 3, "stride": 2, "activation": activation}
+        self._conv_stack = nn.Sequential(
+            nn.MaxPool2d(5, 1, 2),  # 256 -> 128
+            ResNetConvLayer(N_CHANNELS, 8, **kw),  # -> 128
+            ResNetConvLayer(8, 16, **kw),  # -> 64
+            ResNetConvLayer(16, 16, **kw),  # -> 32
+            ResNetConvLayer(16, 32, **kw),  # -> 16
+            ResNetConvLayer(32, 32, **kw),  # -> 8
+            ResNetConvLayer(32, 64, **kw),  # -> 4
+            ResNetConvLayer(64, 128, **kw),  # -> 2
+            ResNetConvLayer(128, embed_dim, **kw),  # -> 1
             nn.Flatten(),
         )
-        # self._module_b = nn.Sequential(
-        #     nn.MaxPool2d(7, 1, 3),
-        #     ResNetEncoderLayer(N_CHANNELS, 8),  # 128 -> 64
-        #     ResNetEncoderLayer(8, 16),  # -> 32
-        #     ResNetEncoderLayer(16, 32),  # -> 16
-        #     ResNetEncoderLayer(32, 32),  # -> 8
-        #     ResNetEncoderLayer(32, 64),  # -> 4
-        #     ResNetEncoderLayer(64, 128),  # -> 2
-        #     ResNetEncoderLayer(128, d),  # -> 1
-        #     nn.Flatten(),
-        # )
-        self._module_a = nn.Sequential(
-            ResNetLinearLayer(N_FEATURES, 256),
-            ResNetLinearLayer(256, d),
+        self._tab_mlp = MLP(
+            N_FEATURES, [256, embed_dim], activation=activation
         )
-        self._module_c = nn.Sequential(
-            ResNetLinearLayer(2 * d, 256),
-            ResNetLinearLayer(256, 256),
-            ResNetLinearLayer(256, 256),
-            ResNetLinearLayer(256, 256),
-            ResNetLinearLayer(256, 64),
-            ResNetLinearLayer(64, N_TRUE_TARGETS),
+        self._mlp_head = MLP(
+            2 * embed_dim,
+            [256, 256, 256, 256, 64, N_TRUE_TARGETS],
+            activation=activation,
+            is_head=True,
         )
-        # for p in self.parameters():
-        #     if p.ndim >= 2:
-        #         torch.nn.init.xavier_normal_(p)
         self.example_input_array = (
             torch.zeros((32, N_FEATURES)),
             torch.zeros((32, N_CHANNELS, IMAGE_SIZE, IMAGE_SIZE)),
@@ -101,8 +85,8 @@ class Ampere(BaseMultilabelClassifier):
             x = concat_tensor_dict(x)
         x = x.float().to(self.device)  # type: ignore
         img = img.to(self.device)  # type: ignore
-        a = self._module_a(x)
-        b = self._module_b(img)
+        a = self._tab_mlp(x)
+        b = self._conv_stack(img)
         ab = torch.concatenate([a, b], dim=-1)
-        c = self._module_c(ab)
+        c = self._mlp_head(ab)
         return c

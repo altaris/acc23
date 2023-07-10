@@ -1,6 +1,5 @@
 # pylint: disable=too-many-lines
 """All the constants"""
-__docformat__ = "google"
 
 
 TARGETS = [
@@ -34,8 +33,12 @@ TARGETS = [
     "Type_of_Venom_Allergy_ATCD_Venom",
     "Type_of_Venom_Allergy_IGE_Venom",
 ]
+"""
+Name of the targets/labels. The order should be the same as in the dataset CSV
+files that are provided by the organizers.
+"""
 N_TARGETS = len(TARGETS)
-"""Number of target columns"""
+"""Number of targets"""
 
 
 TRUE_TARGETS = [
@@ -69,8 +72,13 @@ TRUE_TARGETS = [
     "Type_of_Venom_Allergy_ATCD_Venom",
     "Type_of_Venom_Allergy_IGE_Venom",
 ]
+"""
+The *true* targets, which exclude `Type_of_Food_Allergy_Other` and
+`Type_of_Food_Allergy_Cereals_&_Seeds` since they have 0 prevalence (i.e. no
+sample with these labels).
+"""
 N_TRUE_TARGETS = len(TRUE_TARGETS)
-"""Number of true target columns"""
+"""Number of true targets"""
 
 TRUE_TARGETS_COUNT = [
     1121,
@@ -102,18 +110,22 @@ TRUE_TARGETS_COUNT = [
     17,
 ]
 """
-Ratio of rows that have positive targets
+Number of rows that have that label, e.g. `TRUE_TARGETS_COUNT[0]` is the number
+of samples that have `Allergy_Present`. This can be obtained by running
 
-    import pandas as pd
-    from acc23.constants import TRUE_TARGETS
-    from acc23.preprocessing import load_csv
-    df = load_csv("data/train.csv", impute=False)
-    df = df[TRUE_TARGETS]
-    df = df.where(df.notna(), 0)
-    t = df.to_numpy()
-    t.sum(axis=0)
+```py
+import pandas as pd
+from acc23.constants import TRUE_TARGETS
+from acc23.preprocessing import load_csv
+df = load_csv("data/train.csv", impute=False)
+df = df[TRUE_TARGETS]
+df = df.where(df.notna(), 0)
+t = df.to_numpy()
+t.sum(axis=0)
+```
 
-TODO: Don't hardcode this :/
+TODO:
+    Don't hardcode this :/
 """
 
 TRUE_TARGETS_IRLBL = [
@@ -146,13 +158,17 @@ TRUE_TARGETS_IRLBL = [
     65.94113768,
 ]
 """
-IRLbl score of the true targets
+IRLbl score of the true targets. See `acc23.mlsmote.irlbl`. This can be
+obtained by running
 
-    from acc23 import load_csv, irlbl, TRUE_TARGETS
-    df = load_csv("data/train.csv", oversample=False)
-    irlbl(df[TRUE_TARGETS])
+```py
+from acc23 import load_csv, irlbl, TRUE_TARGETS
+df = load_csv("data/train.csv", oversample=False)
+irlbl(df[TRUE_TARGETS])
+```
 
-TODO: Don't hardcode this :/
+TODO:
+    Don't hardcode this :/
 """
 
 TRUE_TARGETS_PREVALENCE = [
@@ -185,18 +201,22 @@ TRUE_TARGETS_PREVALENCE = [
     0.01253687,
 ]
 """
-Ratio of rows that have positive targets
+Target prevalence, e.g. `TRUE_TARGETS_COUNT[0]` is the prevalence
+of target `Allergy_Present`. This can be obtained by running
 
-    import pandas as pd
-    from acc23.constants import TRUE_TARGETS
-    from acc23.preprocessing import load_csv
-    df = load_csv("data/train.csv", impute=False)
-    df = df[TRUE_TARGETS]
-    df = df.where(df.notna(), 0)
-    t = df.to_numpy()
-    t.sum(axis=0) / len(t)
+```py
+import pandas as pd
+from acc23.constants import TRUE_TARGETS
+from acc23.preprocessing import load_csv
+df = load_csv("data/train.csv", impute=False)
+df = df[TRUE_TARGETS]
+df = df.where(df.notna(), 0)
+t = df.to_numpy()
+t.sum(axis=0) / len(t)
+```
 
-TODO: Don't hardcode this :/
+TODO:
+    Don't hardcode this :/
 """
 
 
@@ -677,18 +697,21 @@ FEATURES = [
     "Treatment_of_atopic_dematitis_9",
 ]
 """
-Tabular features after preprocessing. This list can be obtained by running
+Name of the tabular features *after* preprocessing. This list can be obtained
+by running
 
-    from acc23.preprocessing import load_csv
-    from acc23.constants import TARGETS
-    df = load_csv("data/train.csv")
-    df = df.drop(columns=TARGETS)
-    list(df.columns)
+```py
+from acc23.preprocessing import load_csv
+from acc23.constants import TARGETS
+df = load_csv("data/train.csv")
+df = df.drop(columns=TARGETS)
+list(df.columns)
+```
 """
 
 
 N_FEATURES = len(FEATURES) - 1
-"""Number of features **excluding `Chip_Image_Name`**"""
+"""Number of features **excluding `Chip_Image_Name`**."""
 
 IGES = [
     "Act_d_1",
@@ -1010,7 +1033,7 @@ IGES = [
     "Zea_m",
     "Zea_m_14",
 ]
-"""IgE columns"""
+"""Features pertaining to Immunoglobulin E (IgE)"""
 
 CLASSES = {
     "Chip_Type": ["ALEX", "ISAC_V1", "ISAC_V2"],
@@ -1182,17 +1205,21 @@ CLASSES = {
         "9",  # NaN class
     ],
 }
-"""Classes of categorical columns"""
+"""
+Dict mapping a categorical feature (e.g. `Chip_Type`) to the list of all its
+possible classes (in this case `ALEX`, `ISAC_V1`, and `ISAC_V2`)
+"""
 
 IMAGE_SIZE = 256
 """
-By default, images will be resized to `IMAGE_RESIZE_TO x IMAGE_RESIZE_TO`. See
-also `ACCDataset.__getitem__` and
+By default, images will be resized to `IMAGE_SIZE x IMAGE_SIZE`. See also
+`acc23.preprocessing.load_image` and
 [`torchvision.transforms.Resize`](https://pytorch.org/vision/stable/generated/torchvision.transforms.Resize.html).
 """
 
 N_CHANNELS = 3
 """
-Number of image channels after preprocessing, see `preprocessing.load_image`.
-Even if this is 1, images will still be presented as `(C, H, W)` arrays.
+Number of image channels after preprocessing, see
+`acc23.preprocessing.load_image`. Even if this is 1, images will still be
+presented as `(C, H, W)` tensors.
 """

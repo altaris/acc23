@@ -1,8 +1,4 @@
-"""
-ACC23 main multi-classification model: prototype "London". Like Ampere but the
-convolutional branch is a vision transformer
-"""
-__docformat__ = "google"
+"""ACC23 model prototype *London*"""
 
 from typing import Any, Dict, Literal, Tuple, Union
 
@@ -18,13 +14,16 @@ from .layers import MLP, concat_tensor_dict
 
 
 class London(BaseMultilabelClassifier):
-    """See module documentation"""
+    """
+    Like `acc23.models.ampere.Ampere` but the convolutional branch is a vision
+    transformer.
+    """
 
-    mlp_head: nn.Module  # Fusion branch
-    tae: nn.Module  # Tabular encoder
-    vit_proj: nn.Module
-    vit_resize: nn.Module
-    vit: nn.Module  # Vision transformer
+    _mlp_head: nn.Module
+    _tab_mlp: nn.Module
+    _vit_proj: nn.Module
+    _vit_resize: nn.Module
+    _vit: nn.Module
 
     def __init__(
         self,
@@ -45,10 +44,34 @@ class London(BaseMultilabelClassifier):
         vit: Literal["new", "pretrained", "frozen"] = "pretrained",
         **kwargs: Any,
     ) -> None:
+        """
+        Args:
+            n_features (int, optional): Number of numerical tabular features
+            image_shape (Tuple[int, int, int], optional):
+            out_dim (int, optional):
+            embed_dim (int, optional):
+            patch_size (int, optional):
+            n_transformers (int, optional): Ignored if `vit` is not `new`
+            n_heads (int, optional): Ignored if `vit` is not `new`
+            dropout (float, optional):
+            activation (str, optional):
+            mlp_dim (int, optional):
+            vit (Literal["new", "pretrained", "frozen"], optional): How to
+                create the vision transformer:
+                - `new`: a new vision transformer is created (see [Hugging Face
+                Transformer's
+                `ViTModel`s](https://huggingface.co/docs/transformers/v4.30.0/en/model_doc/vit#transformers.ViTModel))
+                - `pretrained`: a pretrained `ViTModel` is used (specifically
+                `google/vit-base-patch16-224`)
+                - `frozen`: same, but the ViT is frozen
+
+        See also:
+            `acc23.models.base_mlc.BaseMultilabelClassifier.__init__`
+        """
         super().__init__(**kwargs)
         self.save_hyperparameters()
         nc, s, _ = image_shape
-        self.tae = MLP(
+        self._tab_mlp = MLP(
             in_dim=n_features,
             hidden_dims=[mlp_dim, embed_dim],
             dropout=dropout,
@@ -56,7 +79,7 @@ class London(BaseMultilabelClassifier):
             is_head=False,
         )
         if vit == "new":
-            self.vit = ViTModel(
+            self._vit = ViTModel(
                 config=ViTConfig(
                     hidden_size=embed_dim,
                     num_hidden_layers=n_transformers,
@@ -71,29 +94,29 @@ class London(BaseMultilabelClassifier):
                 ),
                 add_pooling_layer=False,
             )
-            self.vit_resize = nn.Identity()
-            self.vit_proj = nn.Identity()
+            self._vit_resize = nn.Identity()
+            self._vit_proj = nn.Identity()
         else:
-            self.vit = ViTModel.from_pretrained("google/vit-base-patch16-224")
-            self.vit.requires_grad_(vit != "frozen")
-            if self.vit.pooler is not None:
-                self.vit.pooler.requires_grad_(False)
-            if not isinstance(self.vit, ViTModel):
+            self._vit = ViTModel.from_pretrained("google/vit-base-patch16-224")
+            self._vit.requires_grad_(vit != "frozen")
+            if self._vit.pooler is not None:
+                self._vit.pooler.requires_grad_(False)
+            if not isinstance(self._vit, ViTModel):
                 raise RuntimeError(
                     "Pretrained ViT is not a transformers.ViTModel object"
                 )
-            if not isinstance(self.vit.config, ViTConfig):
+            if not isinstance(self._vit.config, ViTConfig):
                 raise RuntimeError(
                     "Pretrained ViT confit is not a transformers.ViTConfig "
                     "object"
                 )
-            self.vit_resize = Resize(
-                self.vit.config.image_size, antialias=True
+            self._vit_resize = Resize(
+                self._vit.config.image_size, antialias=True
             )
-            self.vit_proj = nn.Linear(
-                self.vit.config.hidden_size, embed_dim, bias=False
+            self._vit_proj = nn.Linear(
+                self._vit.config.hidden_size, embed_dim, bias=False
             )
-        self.mlp_head = MLP(
+        self._mlp_head = MLP(
             in_dim=2 * embed_dim,
             hidden_dims=[mlp_dim, out_dim],
             dropout=dropout,
@@ -126,10 +149,10 @@ class London(BaseMultilabelClassifier):
             x = concat_tensor_dict(x)
         x = x.float().to(self.device)  # type: ignore
         img = img.to(self.device)  # type: ignore
-        a = self.tae(x)
-        b = self.vit_resize(img)
-        b = self.vit(b).last_hidden_state[:, 0]
-        b = self.vit_proj(b)
+        a = self._tab_mlp(x)
+        b = self._vit_resize(img)
+        b = self._vit(b).last_hidden_state[:, 0]
+        b = self._vit_proj(b)
         ab = torch.concatenate([a, b], dim=-1)
-        c = self.mlp_head(ab)
+        c = self._mlp_head(ab)
         return c

@@ -1,7 +1,7 @@
 """
-Custom pytorch dataset class to read from the competition's data files.
+Custom pytorch-lightning datamodule class to read from the competition's data
+files.
 """
-__docformat__ = "google"
 
 from pathlib import Path
 from typing import Callable, Dict, Optional, Tuple, Union
@@ -16,6 +16,10 @@ from acc23.constants import IMAGE_SIZE, N_CHANNELS, TARGETS, TRUE_TARGETS
 from acc23.preprocessing import load_csv, load_image
 
 ImageTransform_t = Callable[[torch.Tensor], torch.Tensor]
+"""
+Convenience alias representing the type of an image transform. This is just for
+type annotation.
+"""
 
 
 DEFAULT_DATALOADER_KWARGS = {
@@ -23,12 +27,18 @@ DEFAULT_DATALOADER_KWARGS = {
     "pin_memory": True,
     "num_workers": 16,
 }
+"""
+Default parameters for [pytorch
+dataloaders](https://pytorch.org/docs/stable/data.html?highlight=dataloader#torch.utils.data.DataLoader).
+"""
 
 
 class ACCDataset(Dataset):
     """
-    Random-access dataset that reads from a CSV file and a image directory,
-    both assumed to conform to the ACC23 specs.
+    Random-access [pytorch
+    dataset](https://pytorch.org/docs/stable/data.html?highlight=dataset#torch.utils.data.Dataset)
+    that reads from a CSV file and a image directory, both assumed to conform
+    to the competition specs.
     """
 
     image_dir_path: Path
@@ -37,7 +47,9 @@ class ACCDataset(Dataset):
     def __init__(self, data: pd.DataFrame, image_dir_path: Union[str, Path]):
         """
         Args:
-            data (pd.DataFrame):
+            data (pd.DataFrame): **Preprocessed** (see
+                `acc23.preprocessing.load_csv`) tabular data in the form of a
+                pandas dataframe
             image_dir_path (Union[str, Path]):
         """
         self.data = data
@@ -63,7 +75,11 @@ class ACCDataset(Dataset):
 
 
 class ACCDataModule(pl.LightningDataModule):
-    """Lightning datamodule to wrap `acc23.dataset.ACCDataset`"""
+    """
+    Lightning datamodule to wrap `acc23.dataset.ACCDataset`. This module
+    handles tabular data preprocessing. For efficiency, preprocess data are
+    cached in a user-specified directory.
+    """
 
     data_cache_path: Path
     dataloader_kwargs: dict
@@ -84,6 +100,15 @@ class ACCDataModule(pl.LightningDataModule):
         dataloader_kwargs: Optional[dict] = None,
         data_cache_path: Union[str, Path] = "out/data.cache",
     ) -> None:
+        """
+        Args:
+            train_csv_file_path (Union[str, Path]): The path of `train.csv`
+            test_csv_file_path (Union[str, Path]): The path of `test.csv`
+            image_dir_path (Union[str, Path]): Path of the image folder
+            dataloader_kwargs (dict, optional): Default to
+                `acc23.dataset.DEFAULT_DATALOADER_KWARGS`.
+            data_cache_path (Union[str, Path]): Path for data cache folder
+        """
         super().__init__()
         self.data_cache_path = Path(data_cache_path)
         self.dataloader_kwargs = dataloader_kwargs or DEFAULT_DATALOADER_KWARGS
@@ -92,6 +117,14 @@ class ACCDataModule(pl.LightningDataModule):
         self.train_csv_file_path = Path(train_csv_file_path)
 
     def prepare_data(self) -> None:
+        """
+        Overrides
+        [pl.LightningDataModule.prepare_data](https://lightning.ai/docs/pytorch/stable/data/datamodule.html#prepare-data).
+        This is automatically called so don't worry about it.
+
+        TODO:
+            Fix quick&dirty imputation
+        """
         if self.data_cache_path.is_dir():
             logging.debug(
                 "Data cache path '{}' exists, skipping "
@@ -149,6 +182,10 @@ class ACCDataModule(pl.LightningDataModule):
             df.to_csv(self.data_cache_path / f"{k}.csv", index=False)
 
     def setup(self, stage: str) -> None:
+        """
+        Overrides
+        [pl.LightningDataModule.setup](https://lightning.ai/docs/pytorch/stable/data/datamodule.html#setup). This is automatically called so don't worry about it.
+        """
         if stage == "fit":
             df_train = pd.read_csv(self.data_cache_path / "train.csv")
             df_val = pd.read_csv(self.data_cache_path / "val.csv")
@@ -164,6 +201,11 @@ class ACCDataModule(pl.LightningDataModule):
             raise ValueError(f"Unsupported stage: '{stage}'")
 
     def train_dataloader(self) -> DataLoader:
+        """
+        Returns a dataloader for the train dataset, which is a part of
+        `train.csv`. Overrides
+        [pl.LightningDataModule.train_dataloader](https://lightning.ai/docs/pytorch/stable/data/datamodule.html#train_dataloader).
+        """
         if self.ds_train is None:
             raise RuntimeError(
                 "Train dataset not loaded. Call "
@@ -172,6 +214,11 @@ class ACCDataModule(pl.LightningDataModule):
         return DataLoader(dataset=self.ds_train, **self.dataloader_kwargs)
 
     def val_dataloader(self) -> DataLoader:
+        """
+        Returns a dataloader for the validation dataset, which is a part of
+        `train.csv`. Overrides
+        [pl.LightningDataModule.val_dataloader](https://lightning.ai/docs/pytorch/stable/data/datamodule.html#val_dataloader).
+        """
         if self.ds_val is None:
             raise RuntimeError(
                 "Validation dataset not loaded. Call "
@@ -180,6 +227,11 @@ class ACCDataModule(pl.LightningDataModule):
         return DataLoader(dataset=self.ds_val, **self.dataloader_kwargs)
 
     def test_dataloader(self) -> DataLoader:
+        """
+        Returns a dataloader for the test dataset. This is the full
+        preprocessed `train.csv`, **not** the content of `test.csv`. Overrides
+        [pl.LightningDataModule.test_dataloader](https://lightning.ai/docs/pytorch/stable/data/datamodule.html#test_dataloader).
+        """
         if self.ds_test is None:
             raise RuntimeError(
                 "Test dataset not loaded. Call "
@@ -188,6 +240,11 @@ class ACCDataModule(pl.LightningDataModule):
         return DataLoader(dataset=self.ds_test, **self.dataloader_kwargs)
 
     def predict_dataloader(self) -> DataLoader:
+        """
+        Returns a dataloader for the prediction dataset, which corresponds to
+        `test.csv`. Overrides
+        [pl.LightningDataModule.predict_dataloader](https://lightning.ai/docs/pytorch/stable/data/datamodule.html#predict_dataloader).
+        """
         if self.ds_pred is None:
             raise RuntimeError(
                 "Prediction dataset not loaded. Call "
@@ -220,7 +277,7 @@ class ACCDataModule(pl.LightningDataModule):
 #         Args:
 #             image_dir_path (Union[str, Path]): e.g. `"data/images"`. The
 #                 directory should only contain images.
-#             image_transform (Optional[ImageTransform_t]): [torchvision
+#             image_transform (ImageTransform_t, optional): [torchvision
 #                 transforms](https://pytorch.org/vision/stable/transforms.html)
 #                 to apply to the images. Note that images are already resized to
 #                 `constants.IMAGE_RESIZE_TO` and rescales to $[0, 1]$ before
@@ -270,7 +327,7 @@ class ACCDataModule(pl.LightningDataModule):
 #         Args:
 #             ratio (float): A number in $(0, 1]$. If $1$, then the current
 #                 dataset is returned twice (into 2 different dataloaders).
-#             dataloader_kwargs (Optional[dict]): Defaults to
+#             dataloader_kwargs (dict, optional): Defaults to
 #                 `acc23.dataset.DEFAULT_DATALOADER_KWARGS`
 #         """
 #         split_kwargs = split_kwargs or {}

@@ -1,13 +1,4 @@
-"""
-ACC23 main multi-classification model: prototype "Gordon". Fusion model
-**inspired** by
-
-    Y. Liu, H. -P. Lu and C. -H. Lai, "A Novel Attention-Based Multi-Modal
-    Modeling Technique on Mixed Type Data for Improving TFT-LCD Repair
-    Process," in IEEE Access, vol. 10, pp. 33026-33036, 2022, doi:
-    10.1109/ACCESS.2022.3158952.
-"""
-__docformat__ = "google"
+"""ACC23 model prototype *Gordon*"""
 
 from typing import Any, Dict, Tuple, Union
 
@@ -19,17 +10,30 @@ from acc23.constants import IMAGE_SIZE, N_CHANNELS, N_FEATURES, N_TRUE_TARGETS
 
 from .base_mlc import BaseMultilabelClassifier
 from .imagetabnet import VisionEncoder
-from .layers import concat_tensor_dict, linear_chain
+from .layers import MLP, concat_tensor_dict
 
 
 class Gordon(BaseMultilabelClassifier):
-    """See module documentation"""
+    """
+    Fusion model inspired by
 
-    tabular_branch: nn.Module  # Dense input branch
-    vision_branch_a: nn.Module  # Conv. pool input branch
-    vision_branch_b: nn.Module  # Conv fusion encoder
-    vision_branch_c: nn.Module  # Adjust to embed dim
-    main_branch: nn.Module  # Fusion branch
+        Y. Liu, H. -P. Lu and C. -H. Lai, "A Novel Attention-Based Multi-Modal
+        Modeling Technique on Mixed Type Data for Improving TFT-LCD Repair
+        Process," in IEEE Access, vol. 10, pp. 33026-33036, 2022, doi:
+        10.1109/ACCESS.2022.3158952.
+
+    In a nutshell, the tabular data is encoded by a MLP as usual. The image, on
+    the other hand, goes through several
+    `acc23.models.imagetabnet.VisionEncoder`, which also involves the encoded
+    tabular data. The result of both branches are concatenated and fed through
+    a MLP head.
+    """
+
+    _tab_mlp: nn.Module
+    _vis_pool: nn.Module
+    _vis_enc: nn.Module
+    _vis_proj: nn.Module
+    _mlp_head: nn.Module
 
     def __init__(
         self,
@@ -45,17 +49,29 @@ class Gordon(BaseMultilabelClassifier):
         activation: str = "gelu",
         **kwargs: Any,
     ) -> None:
+        """
+        Args:
+            n_features (int, optional): Number of numerical tabular features
+            image_shape (Tuple[int, int, int], optional):
+            out_dim (int, optional):
+            embed_dim (int, optional):
+            dropout (float, optional):
+            activation (str, optional):
+
+        See also:
+            `acc23.models.base_mlc.BaseMultilabelClassifier.__init__`
+        """
         super().__init__(**kwargs)
         self.save_hyperparameters()
         nc, s, _ = image_shape
-        self.tabular_branch = linear_chain(
+        self._tab_mlp = MLP(
             n_features,
             [embed_dim],
             activation=activation,
         )
-        self.vision_branch_a = nn.MaxPool2d(5, 2, 2)
+        self._vis_pool = nn.MaxPool2d(5, 2, 2)
         # self.vision_branch_a = nn.Identity()
-        self.vision_branch_b = VisionEncoder(
+        self._vis_enc = VisionEncoder(
             # image_shape=image_shape,
             image_shape=(nc, s // 2, s // 2),
             out_channels=[
@@ -70,11 +86,11 @@ class Gordon(BaseMultilabelClassifier):
             in_features=embed_dim,
             activation=activation,
         )
-        self.vision_branch_c = nn.Linear(4 * 4 * 4, embed_dim, bias=False)
+        self._vis_proj = nn.Linear(4 * 4 * 4, embed_dim, bias=False)
         # self.main_branch = nn.Sequential(
         #     nn.Linear(2 * embed_dim, out_dim),
         # )
-        self.main_branch = nn.Sequential(
+        self._mlp_head = nn.Sequential(
             nn.LayerNorm(embed_dim),
             nn.Linear(embed_dim, embed_dim),
             get_activation(activation),
@@ -106,11 +122,11 @@ class Gordon(BaseMultilabelClassifier):
             x = concat_tensor_dict(x)
         x = x.float().to(self.device)  # type: ignore
         img = img.to(self.device)  # type: ignore
-        u = self.tabular_branch(x)
-        v = self.vision_branch_a(img)
-        v = self.vision_branch_b(v, u)
-        v = self.vision_branch_c(v)
+        u = self._tab_mlp(x)
+        v = self._vis_pool(img)
+        v = self._vis_enc(v, u)
+        v = self._vis_proj(v)
         # uv = torch.concatenate([u, v], dim=-1)
         uv = u * v
-        w = self.main_branch(uv)
+        w = self._mlp_head(uv)
         return w

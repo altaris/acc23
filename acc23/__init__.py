@@ -1,8 +1,6 @@
 """
 .. include:: ../README.md
-.. include:: ../CHANGELOG.md
 """
-__docformat__ = "google"
 
 from .constants import *
 from .dataset import ACCDataModule, ACCDataset

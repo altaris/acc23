@@ -1,4 +1,7 @@
-"""Preprocessing stuff"""
+"""
+Everything related to preprocessing, i.e. going from raw data to data that is
+usable by the rest of this package.
+"""
 
 import re
 from pathlib import Path
@@ -42,83 +45,24 @@ ImageFile.LOAD_TRUNCATED_IMAGES = True
 # CY60527_4_190006236104_2022_12_22_12_11_20.bmp
 
 
-class MultiLabelSplitBinarizer(TransformerMixin):
-    """
-    Essentially applies a MultiLabelBinarizer to column that contains
-    comma-separated lists of labels. Plays nice with sklearn-pandas since the
-    internal `MultiLabelBinarizer.classes_` is accessible. For some reason
-    deriving this class from `MultiLabelBinarizer` directly doesn"t work as
-    well...
-    """
-
-    _multilabel_binarizer: MultiLabelBinarizer
-    _split_delimiters: str
-    _last_class_is_nan: bool
-
-    def __init__(
-        self,
-        classes: Optional[list] = None,
-        split_delimiters: str = ",",
-        last_class_is_nan: bool = False,
-    ):
-        """
-        Args:
-            classes (Optional[list]): Leave to `None` to automatically infer
-                the classes
-            split_delimiters (str): Splitting delimiters, defaults to only `,`
-                (so that it deals with comma-separated lists)
-            last_class_is_nan (bool): If set to `True`, then the last class
-                will treated as the "unknown" class. Here's an example:
-
-                >>> x = ["a,b,c", "a,b", "d", "a,d"]
-                >>> f = MultiLabelSplitBinarizer(classes=["a", "b", "c", "d"])
-                >>> f.fit_transform(x)
-                array([[1, 1, 1, 0],
-                       [1, 1, 0, 0],
-                       [0, 0, 0, 1],
-                       [1, 0, 0, 1]])
-                >>> g = MultiLabelSplitBinarizer(classes=["a", "b", "c", "d"], last_class_is_nan=True)
-                >>> g.fit_transform(x)
-                array([[ 1.,  1.,  1.],
-                       [ 1.,  1.,  0.],
-                       [nan, nan, nan],
-                       [nan, nan, nan]])
-
-                Note that `g.fit_transform(x)` only has 3 columns.
-        """
-        self._multilabel_binarizer = MultiLabelBinarizer(classes=classes)
-        self._split_delimiters = split_delimiters
-        self._last_class_is_nan = last_class_is_nan
-
-    @property
-    def classes_(self) -> Iterable[str]:
-        """
-        Access the internal `MultiLabelBinarizer.classes_` directly to play
-        nice with sklearn-pandas.
-        """
-        return self._multilabel_binarizer.classes_
-
-    def fit(self, x: np.ndarray, *_, **__) -> "MultiLabelSplitBinarizer":
-        """Fits the internal `MultiLabelBinarizer`"""
-        s = map_split(x, self._split_delimiters)
-        self._multilabel_binarizer.fit(s)
-        return self
-
-    def transform(self, x: np.ndarray, *_, **__) -> np.ndarray:
-        """
-        Transforms the input dataframe using `map_split` and the internal
-        `MultiLabelBinarizer`.
-        """
-        s = map_split(x, self._split_delimiters)
-        y = self._multilabel_binarizer.transform(s)
-        if self._last_class_is_nan:
-            b = y[:, -1] == 1  # Whether row has last class
-            b = np.stack([b] * len(list(self.classes_)), axis=-1)
-            # b now has the same shape as y, and b[i,j] is True iff x[i] has
-            # the last class, i.e. y[i,-1] == 1
-            y = np.where(b, np.NaN, y)
-            y = y[:, :-1]  # Drop last column
-        return y
+def _drop_if_has_nan_tgt(df: pd.DataFrame) -> pd.DataFrame:
+    """Drop all rows where at least one target is NaN"""
+    if not all(t in df.columns for t in TARGETS):
+        logging.warning(
+            "drop_nan_targets set to True, but dataframe does not have "
+            "all target columns. Skipping drops"
+        )
+        return df
+    no_nan_tgt = df[TARGETS].notna().prod(axis=1) == 1
+    a, b = no_nan_tgt.sum(), len(df)
+    logging.debug(
+        "Dropping rows with at least one NaN target ({} / {} rows, {}%)",
+        a,
+        b,
+        round(a / b * 100, 3),
+    )
+    df = df[no_nan_tgt].reset_index(drop=True)
+    return df
 
 
 def get_dtypes(with_nans: bool = False) -> Dict[str, Any]:
@@ -164,18 +108,21 @@ def get_dtypes(with_nans: bool = False) -> Dict[str, Any]:
     return d
 
 
-def impute_dataframe_2(
+def impute_dataframe(
     df: pd.DataFrame,
     impute_targets: bool = False,
     imputer_path: Optional[Union[str, Path]] = None,
 ) -> pd.DataFrame:
     """
-    Full dataframe imputation
+    Full dataframe imputation using
+    [`sklearn.impute.IterativeImputer`](https://scikit-learn.org/stable/modules/generated/sklearn.impute.IterativeImputer.html)
 
     Args:
         df (pd.DataFrame):
         impute_targets (bool):
-        imputer_path (Optional[Union[str, Path]]):
+        imputer_path (Union[str, Path], optional): Path to a
+            [turbo-broccoli](https://altaris.github.io/turbo-broccoli)
+            serialized `IterativeImputer`
     """
     logging.debug("Imputing dataframe")
     obj_cols = [c for c, d in df.dtypes.items() if str(d) == "object"]
@@ -318,8 +265,9 @@ def load_csv(
         impute (bool): Whether the dataframe should be imputed (see
             `acc23.preprocessing.impute_dataframe`). Note that imputation is
             not performed if `preprocess=False`.
-        imputer_path (Optional[Union[str, Path]]): Path where the fitted
-            imputer is or shall be dumped.
+        imputer_path (Union[str, Path], optional): Path where the fitted
+            imputer is or shall be dumped (using
+            [turbo-broccoli](https://altaris.github.io/turbo-broccoli)).
         impute_targets (bool): If imputing (`impute=True`), whether to impute
             the target columns as well. This has no effect if
             `drop_nan_targets=True`.
@@ -331,7 +279,7 @@ def load_csv(
             `impute=True`, and either `drop_nan_targets=True` or
             `impute_targets=True`.
 
-    Here is the percentages of NaNs for each true target:
+    For reference, here is the percentages of NaNs for each true target:
 
         Severe_Allergy                                    44.128
         Type_of_Respiratory_Allergy_ARIA                  49.582
@@ -359,10 +307,12 @@ def load_csv(
 
     This series can be obtained with the following snippet:
 
-        from acc23 import load_csv, TRUE_TARGETS
-        df = load_csv("data/train.csv", drop_nan_targets=False, impute=False)
-        n = len(df)
-        ((n - df[TRUE_TARGETS].count(axis=0)) / len(df) * 100).round(3)
+    ```py
+    from acc23 import load_csv, TRUE_TARGETS
+    df = load_csv("data/train.csv", drop_nan_targets=False, impute=False)
+    n = len(df)
+    ((n - df[TRUE_TARGETS].count(axis=0)) / len(df) * 100).round(3)
+    ```
     """
     logging.info("Loading dataframe {}", path)
     df = pd.read_csv(path)
@@ -379,7 +329,7 @@ def load_csv(
         logging.debug("Skipped preprocessing")
     if impute and preprocess:
         # df = impute_dataframe(df, impute_targets=(not drop_nan_targets) and impute_targets)
-        df = impute_dataframe_2(
+        df = impute_dataframe(
             df,
             impute_targets=(not drop_nan_targets) and impute_targets,
             imputer_path=imputer_path,
@@ -387,7 +337,7 @@ def load_csv(
     else:
         logging.debug("Skipped imputation")
     if drop_nan_targets:
-        df = _drop_nan_targets(df)
+        df = _drop_if_has_nan_tgt(df)
     else:
         logging.debug("Not dropping rows with NaN targets")
     if (
@@ -412,22 +362,24 @@ def load_image(
     pe_weight: Optional[float] = None,
 ) -> Tensor:
     """
-    Convenience function to load an PNG or BMP image. The returned image tensor
-    has shape `(C, H, W)` (the torch/torchvision convention) and dtype
-    `float32`. Here, `C = constants.N_CHANNELS`, and `H = W =
-    constants.IMAGE_RESIZE_TO`. In particular, the image is transposed since
-    Pillow uses a `(W, H, C)` convention.
+    Convenience function to load a PNG or BMP image. The returned image tensor
+    has shape `(N_CHANNELS, IMAGE_SIZE, IMAGE_SIZE)` (see `acc23.constants`),
+    which the torch/torchvision convention. In particular, the image is
+    transposed since Pillow uses the channel-last convention.
 
     Args:
         path (Union[str, Path]):
-        preserve_aspect_ratio (bool):
-        image_mean (Optional[float]): Set to `None` to skip image
+        preserve_aspect_ratio (bool): If `False`, the input image is simply
+            resized to be `(IMAGE_SIZE, IMAGE_SIZE)`. If `True`, the image is
+            padded first so that its original aspect ratio is preserved after
+            resizing.
+        image_mean (float, optional): Set to `None` to skip image
             normalization, in which case the image is simply scaled to $[0, 1]$
-        image_std (Optional[float]): If `image_mean` is specified, this
+        image_std (float, optional): If `image_mean` is specified, this
             argument must be specified too
-        noise_std (Optional[float]): Set to `None` to not add Gaussian noise to
+        noise_std (float, optional): Set to `None` to not add Gaussian noise to
             the image
-        pe_weight (Optional[float]): Set to `None` to not add positional
+        pe_weight (float, optional): Set to `None` to not add positional
             encoding to the image
     """
     # See https://pillow.readthedocs.io/en/latest/handbook/concepts.html#concept-modes
@@ -479,13 +431,13 @@ def positional_encoding(image_size: int, k: float = 0.05) -> Tensor:
 
 
 def map_replace(x: np.ndarray, val: Any, rep: Any) -> np.ndarray:
-    """Splits entries of an array of strings."""
+    """Replaces strings in a numpy array of strings"""
     return np.where(x == val, rep, x)
 
 
 def map_split(x: np.ndarray, delimiters: str = ",") -> Iterable[str]:
     """
-    Splits entries of an array of strings. Also removed unnecessary spaces.
+    Splits entries of an array of strings. Also removes unnecessary spaces.
     """
     values_to_ignore = ["", "nan"]
 
@@ -507,8 +459,12 @@ def pmf_impute(
     learning_rate: float = 0.1,
 ) -> np.ndarray:
     """
-    Probabilistic matrix factorization imputation method. Assumes that x is
-    zero-mean.
+    Probabilistic matrix factorization imputation of
+
+        NIPS'07: Proceedings of the 20th International Conference on Neural
+        Information Processing SystemsDecember 2007Pages 1257-1264
+
+    Assumes that x is zero-mean.
 
     See also:
         https://github.com/mcleonard/pmf-pytorch/blob/master/Probability%20Matrix%20Factorization.ipynb
@@ -544,14 +500,15 @@ def pmf_impute(
 
 def preprocess_dataframe(df: pd.DataFrame) -> pd.DataFrame:
     """
-    Applies all manners of preprocessing transformers to the dataframe.
+    Applies all manners of preprocessing to the dataframe.
 
     Args:
         df (DataFrame):
         drop_nan_targets (bool): Drop the rows where at least one true target
             is NaN or 9.
 
-    TODO: List all transformers
+    TODO:
+        List all transforms
     """
     logging.debug("Preprocessing dataframe")
 
@@ -703,27 +660,6 @@ def preprocess_dataframe(df: pd.DataFrame) -> pd.DataFrame:
     return reorder_columns(df)
 
 
-# TODO: find a better name
-def _drop_nan_targets(df: pd.DataFrame) -> pd.DataFrame:
-    """Drop all rows where at least one target is NaN"""
-    if not all(t in df.columns for t in TARGETS):
-        logging.warning(
-            "drop_nan_targets set to True, but dataframe does not have "
-            "all target columns. Skipping drops"
-        )
-        return df
-    no_nan_tgt = df[TARGETS].notna().prod(axis=1) == 1
-    a, b = no_nan_tgt.sum(), len(df)
-    logging.debug(
-        "Dropping rows with at least one NaN target ({} / {} rows, {}%)",
-        a,
-        b,
-        round(a / b * 100, 3),
-    )
-    df = df[no_nan_tgt].reset_index(drop=True)
-    return df
-
-
 def reorder_columns(df: pd.DataFrame) -> pd.DataFrame:
     """
     Reorders the columns of the dataframe to `FEATURES + TARGETS`, where
@@ -740,7 +676,7 @@ def reorder_columns(df: pd.DataFrame) -> pd.DataFrame:
 def set_fake_targets(df: pd.DataFrame) -> pd.DataFrame:
     """
     Calculate the 'fake' targets from the true targets. The true target columns
-    cannot have nans.
+    cannot have NaNs.
     """
     # Some targets have 0 prevalence lôl
     for c in [
@@ -795,3 +731,83 @@ def set_fake_targets(df: pd.DataFrame) -> pd.DataFrame:
     ).clip(0, 1)
     df["Allergy_Present"] = df.sum(axis=1).clip(0, 1)
     return reorder_columns(df)
+
+
+class MultiLabelSplitBinarizer(TransformerMixin):
+    """
+    Essentially applies a [`sklearn.processing.MultiLabelBinarizer`](https://scikit-learn.org/stable/modules/generated/sklearn.preprocessing.MultiLabelBinarizer.htm)
+    to column that contains comma-separated lists of labels. Plays nice with
+    sklearn-pandas since the internal `MultiLabelBinarizer.classes_` is
+    accessible. For some reason deriving this class from `MultiLabelBinarizer`
+    directly doesn't work as well...
+    """
+
+    _multilabel_binarizer: MultiLabelBinarizer
+    _split_delimiters: str
+    _last_class_is_nan: bool
+
+    def __init__(
+        self,
+        classes: Optional[list] = None,
+        split_delimiters: str = ",",
+        last_class_is_nan: bool = False,
+    ):
+        """
+        Args:
+            classes (list, optional): Leave to `None` to automatically infer
+                the classes
+            split_delimiters (str): Splitting delimiters, defaults to only `,`
+                (so that it deals with comma-separated lists)
+            last_class_is_nan (bool): If set to `True`, then the last class
+                will treated as the "unknown" class. Here's an example:
+
+                >>> x = ["a,b,c", "a,b", "d", "a,d"]
+                >>> mlsb = MultiLabelSplitBinarizer(classes=["a", "b", "c", "d"])
+                >>> mlsb.fit_transform(x)
+                array([[1, 1, 1, 0],
+                        [1, 1, 0, 0],
+                        [0, 0, 0, 1],
+                        [1, 0, 0, 1]])
+                >>> mlsb = MultiLabelSplitBinarizer(classes=["a", "b", "c", "d"], last_class_is_nan=True)
+                >>> mlsb.fit_transform(x)
+                array([[ 1.,  1.,  1.],
+                        [ 1.,  1.,  0.],
+                        [nan, nan, nan],
+                        [nan, nan, nan]])
+
+                Note that in the second example, `mlsb.fit_transform(x)` only
+                has 3 columns.
+        """
+        self._multilabel_binarizer = MultiLabelBinarizer(classes=classes)
+        self._split_delimiters = split_delimiters
+        self._last_class_is_nan = last_class_is_nan
+
+    @property
+    def classes_(self) -> Iterable[str]:
+        """
+        Access the internal `MultiLabelBinarizer.classes_` directly to play
+        nice with sklearn-pandas.
+        """
+        return self._multilabel_binarizer.classes_
+
+    def fit(self, x: np.ndarray, *_, **__) -> "MultiLabelSplitBinarizer":
+        """Fits the internal `MultiLabelBinarizer`"""
+        s = map_split(x, self._split_delimiters)
+        self._multilabel_binarizer.fit(s)
+        return self
+
+    def transform(self, x: np.ndarray, *_, **__) -> np.ndarray:
+        """
+        Transforms the input dataframe using `map_split` and the internal
+        `MultiLabelBinarizer`.
+        """
+        s = map_split(x, self._split_delimiters)
+        y = self._multilabel_binarizer.transform(s)
+        if self._last_class_is_nan:
+            b = y[:, -1] == 1  # Whether row has last class
+            b = np.stack([b] * len(list(self.classes_)), axis=-1)
+            # b now has the same shape as y, and b[i,j] is True iff x[i] has
+            # the last class, i.e. y[i,-1] == 1
+            y = np.where(b, np.NaN, y)
+            y = y[:, :-1]  # Drop last column
+        return y

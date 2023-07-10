@@ -1,5 +1,7 @@
-"""Base class for multilabel classifiers"""
-__docformat__ = "google"
+"""
+Base class for multilabel classifiers. This module also contains implementation
+of various loss function.
+"""
 
 from typing import Any, Dict, Iterable, Literal, Optional, Union
 
@@ -22,7 +24,10 @@ from .layers import concat_tensor_dict
 
 
 class BaseMultilabelClassifier(pl.LightningModule):
-    """Base class for multilabel classifiers (duh)"""
+    """
+    Base class for multilabel classifiers (duh). All model prototypes listed
+    in `acc23.models` inherit from this class.
+    """
 
     # pylint: disable=unused-argument
     def __init__(
@@ -36,10 +41,37 @@ class BaseMultilabelClassifier(pl.LightningModule):
         swa_epoch: Optional[Union[int, float]] = None,  # 10,
         **kwargs,
     ) -> None:
+        """
+        Args:
+            lr (float, optional): Learning rate
+            weight_decay (float, optional): Weight decay a.k.a. regularization
+                term
+            loss_function (Literal["bce", "irlbl_bce", "focal", "db", "mse",
+                "mc"], optional):
+                - `bce`: Binary cross-entropy
+                - `irlbl_bce`: Binary cross-entropy weighted by IRLbl scores,
+                    see `acc23.mlsmote.irlbl`
+                - `focal`: Focal loss, see
+                  `acc23.models.base_mlc.focal_loss_with_logits`
+                - `db`: Distribution-balanced loss, see
+                  `acc23.models.base_mlc.distribution_balanced_loss_with_logits`
+                - `mse`: Mean squared error
+                - `mc`: Max constraint loss, see
+                  `acc23.models.base_mlc.mc_loss`
+            swa_lr (float, optional): Learning rate for stochastic
+                weight averaging. If left to `None`, this method is not
+                applied.
+            swa_epoch (Union[int, float], optional): Number of epochs
+                to skip before applying stochastic weight averaging.
+        """
         super().__init__(**kwargs)
         self.save_hyperparameters()
 
     def configure_optimizers(self) -> Any:
+        """
+        Configures an Adam optimizer with a scheduler that reduces the learning
+        rate when the validation loss plateaus
+        """
         optimizer = optim.Adam(
             self.parameters(),
             lr=self.hparams["lr"],
@@ -75,7 +107,6 @@ class BaseMultilabelClassifier(pl.LightningModule):
         4. Precision score,
         5. Recall score,
         6. F1 score,
-        7. an optional extra loss reported by the model (e.g. regularization).
 
         Furthermore, if `stage` is given, these values are also logged to
         tensorboard under `<stage>/loss`, `<stage>/acc`, `<stage>/ham` (lol),
@@ -148,61 +179,84 @@ class BaseMultilabelClassifier(pl.LightningModule):
     #             logging.warning("Weight '{}' does not have a gradient!", n)
 
     def on_train_start(self):
-        # https://lightning.ai/docs/pytorch/latest/extensions/logging.html#logging-hyperparameters
+        """
+        Logs `NaN` to validation metrics (see
+        `acc23.models.base_mlc.evaluate`). This allows to cleanly log
+        hyperparameters to tensorboard.
+
+        See also:
+            https://lightning.ai/docs/pytorch/latest/extensions/logging.html#logging-hyperparameters
+        """
         keys = ["val/loss", "val/ham", "val/f1", "val/prec", "val/rec"]
         self.logger.log_hyperparams(self.hparams, {k: np.nan for k in keys})
 
     def training_step(self, batch, *_, **__):
+        """Override"""
         x, y, img = batch
         return self.evaluate(x, y, img, "train")
 
     def validation_step(self, batch, *_, **__):
+        """Override"""
         x, y, img = batch
         return self.evaluate(x, y, img, "val")
 
     def test_step(self, batch, *_, **__):
+        """Override"""
         x, y, img = batch
         return self.evaluate(x, y, img, "test")
 
     def predict_step(self, batch, *_, **__):
+        """Override"""
         x, _, img = batch
         return self(x, img)
 
 
 class ModuleWeightsHistogram(pl.Callback):
-    """Logs a histogram of the module's weights"""
+    """
+    A callback to log a tensorboard histogram of the distribution of a module
+    weights during training
+    """
 
-    every_n_epochs: int
-    key: str
-    warned_wrong_logger: bool = False
+    _every_n_epochs: int
+    _key: str
+    _warned_wrong_logger: bool = False
 
     def __init__(
-        self, every_n_epochs: int = 5, key: str = "train/weights"
+        self,
+        every_n_epochs: int = 5,
+        key: str = "train/weights",
     ) -> None:
+        """
+        Args:
+            every_n_epochs (int, optional):
+            key (str, optional): Key under which the histogram will be logged
+                in tensorboard
+        """
         super().__init__()
-        self.every_n_epochs = every_n_epochs
-        self.key = key
+        self._every_n_epochs = every_n_epochs
+        self._key = key
 
     def on_train_epoch_end(
         self, trainer: pl.Trainer, pl_module: pl.LightningModule
     ) -> None:
-        if trainer.current_epoch % self.every_n_epochs != 0:
+        """Override"""
+        if trainer.current_epoch % self._every_n_epochs != 0:
             return
         ps = [p.flatten() for p in pl_module.parameters()]
         if isinstance(trainer.logger, pl.loggers.TensorBoardLogger):
             trainer.logger.experiment.add_histogram(
-                self.key,
+                self._key,
                 torch.concat(ps),
                 bins="auto",
                 global_step=trainer.global_step,
             )
-        elif not self.warned_wrong_logger:
+        elif not self._warned_wrong_logger:
             logging.warning(
                 "ModuleWeightsHistogram callback: Trainer's logger is has "
                 f"type '{type(trainer.logger)}', but a tensorboard logger is "
                 "required. This warning will only be logged once"
             )
-            self.warned_wrong_logger = True
+            self._warned_wrong_logger = True
 
 
 def bp_mll_loss(y_pred: Tensor, y_true: Tensor, *_, **__) -> Tensor:
@@ -213,7 +267,7 @@ def bp_mll_loss(y_pred: Tensor, y_true: Tensor, *_, **__) -> Tensor:
         applications to functional genomics and text categorization." IEEE
         transactions on Knowledge and Data Engineering 18.10 (2006): 1338-1351.
 
-    `y_pred` is expected to contain class probabilities.
+    `y_pred` is expected to contain class probabilities, **not** logits.
     """
     y_bar = 1 - y_true
     k = 1 / (y_true.sum(dim=-1) * y_bar.sum(dim=-1) + 1e-10)
@@ -256,29 +310,6 @@ def class_balanced_focal_loss_with_logits(
         y_pred, y_true, reduction="none", weight=r
     )
     return torch.mean(foc * bce)
-
-
-def continuous_hamming_loss(
-    y_pred: Tensor, y_true: Tensor, *_, **__
-) -> Tensor:
-    """
-    Continuous (and differentiable) version of the Hamming loss. The (discrete)
-    Hamming loss is the fraction of labels that are incorrectly predicted.
-
-    `y_pred` is expected to contain class probabilities.
-    """
-    h = (1 - y_true) * y_pred + y_true * (1 - y_pred)
-    return h.mean()
-
-
-def continuous_f1_score(y_pred: Tensor, y_true: Tensor, *_, **__) -> Tensor:
-    """
-    Continuous macro-f1 score. `y_pred` is expected to contain class
-    probabilities, not logits.
-    """
-    p, pp, tp = y_true.sum(0), y_pred.sum(0), (y_true * y_pred).sum(0)
-    pr, re = tp / (pp + 1e-10), tp / (p + 1e-10)
-    return torch.mean(2 * pr * re / (pr + re + 1e-10))
 
 
 def distribution_balanced_loss_with_logits(
@@ -396,49 +427,47 @@ def to_hierarchical_logits(
     Given a `(N, N_TRUE_TARGETS)` tensor of true target logits, corrects some
     of them based on the inherent hierarchy of the targets. The parent/child
     (aka. superclass/subclass) relationship is as follows:
-
-        0. `Allergy_Present` parent of targets 1, 2, 3, 4
-        1. `Severe_Allergy`
-        2. `Respiratory_Allergy` parent of targets 5, 6, 7, 8, 9, 10, 11, 12,
-           13
-        3. `Food_Allergy` parent of targets 14, 15, 16, 17, 18, 19, 20, 21, 22,
-           23, 24
-        4. `Venom_Allergy` parent of targets 25, 26
-        5. `Type_of_Respiratory_Allergy_ARIA`
-        6. `Type_of_Respiratory_Allergy_CONJ`
-        7. `Type_of_Respiratory_Allergy_GINA`
-        8. `Type_of_Respiratory_Allergy_IGE_Pollen_Gram`
-        9. `Type_of_Respiratory_Allergy_IGE_Pollen_Herb`
-        10. `Type_of_Respiratory_Allergy_IGE_Pollen_Tree`
-        11. `Type_of_Respiratory_Allergy_IGE_Dander_Animals`
-        12. `Type_of_Respiratory_Allergy_IGE_Mite_Cockroach`
-        13. `Type_of_Respiratory_Allergy_IGE_Molds_Yeast`
-        14. `Type_of_Food_Allergy_Aromatics`
-        15. `Type_of_Food_Allergy_Egg`
-        16. `Type_of_Food_Allergy_Fish`
-        17. `Type_of_Food_Allergy_Fruits_and_Vegetables`
-        18. `Type_of_Food_Allergy_Mammalian_Milk`
-        19. `Type_of_Food_Allergy_Oral_Syndrom`
-        20. `Type_of_Food_Allergy_Other_Legumes`
-        21. `Type_of_Food_Allergy_Peanut`
-        22. `Type_of_Food_Allergy_Shellfish`
-        23. `Type_of_Food_Allergy_TPO`
-        24. `Type_of_Food_Allergy_Tree_Nuts`
-        25. `Type_of_Venom_Allergy_ATCD_Venom`
-        26. `Type_of_Venom_Allergy_IGE_Venom`
+    0. `Allergy_Present` parent of targets 1, 2, 3, 4
+    1. `Severe_Allergy`
+    2. `Respiratory_Allergy` parent of targets 5, 6, 7, 8, 9, 10, 11, 12,
+        13
+    3. `Food_Allergy` parent of targets 14, 15, 16, 17, 18, 19, 20, 21, 22,
+        23, 24
+    4. `Venom_Allergy` parent of targets 25, 26
+    5. `Type_of_Respiratory_Allergy_ARIA`
+    6. `Type_of_Respiratory_Allergy_CONJ`
+    7. `Type_of_Respiratory_Allergy_GINA`
+    8. `Type_of_Respiratory_Allergy_IGE_Pollen_Gram`
+    9. `Type_of_Respiratory_Allergy_IGE_Pollen_Herb`
+    10. `Type_of_Respiratory_Allergy_IGE_Pollen_Tree`
+    11. `Type_of_Respiratory_Allergy_IGE_Dander_Animals`
+    12. `Type_of_Respiratory_Allergy_IGE_Mite_Cockroach`
+    13. `Type_of_Respiratory_Allergy_IGE_Molds_Yeast`
+    14. `Type_of_Food_Allergy_Aromatics`
+    15. `Type_of_Food_Allergy_Egg`
+    16. `Type_of_Food_Allergy_Fish`
+    17. `Type_of_Food_Allergy_Fruits_and_Vegetables`
+    18. `Type_of_Food_Allergy_Mammalian_Milk`
+    19. `Type_of_Food_Allergy_Oral_Syndrom`
+    20. `Type_of_Food_Allergy_Other_Legumes`
+    21. `Type_of_Food_Allergy_Peanut`
+    22. `Type_of_Food_Allergy_Shellfish`
+    23. `Type_of_Food_Allergy_TPO`
+    24. `Type_of_Food_Allergy_Tree_Nuts`
+    25. `Type_of_Venom_Allergy_ATCD_Venom`
+    26. `Type_of_Venom_Allergy_IGE_Venom`
 
     The argument `mode` indicates how the logits are corrected.
-
-        * If `mode` is `min`, child logits are capped by that of their parent:
-          $$c' = \\mathrm{min} (c, p)$$ where where $p$ and $c$ are the logits
-          of the parent and child target, and where $c'$ is the new child
-          logit.
-        * If `mode` is `max`, parent logits are corrected to be at least the
-          max of their child: $$p' = \\mathrm{max} (p, c_1, c_2, \\ldots)$$,
-          where $p'$ is the new parent logit, and $c_1, c_2, \\ldots$ are the
-          child logits.
-        * If `mode` is `prod`, child logits are weighed by their parent using
-          the following formula $$\\sigma (c') = \\sigma (p) \\sigma (c)$$,
+    * If `mode` is `min`, child logits are capped by that of their parent:
+        $$c' = \\mathrm{min} (c, p)$$ where where $p$ and $c$ are the logits
+        of the parent and child target, and where $c'$ is the new child
+        logit.
+    * If `mode` is `max`, parent logits are corrected to be at least the
+        max of their child: $$p' = \\mathrm{max} (p, c_1, c_2, \\ldots)$$
+        where $p'$ is the new parent logit, and $c_1, c_2, \\ldots$ are the
+        child logits.
+    * If `mode` is `prod`, child logits are weighed by their parent using
+        the following formula $$c' = \\sigma^{-1} ( \\sigma (p) \\sigma (c) )$$
 
     """
 
@@ -496,7 +525,7 @@ def mc_loss(y_pred: Tensor, y_true: Tensor) -> Tensor:
         multi-label classification networks." Advances in neural information
         processing systems 33 (2020): 9662-9673.
 
-    y_pred must be prediction probabilities
+    `y_pred` is expected to contain class probabilities, **not** logits.
     """
 
     def _mask(idxs: Iterable[int]) -> Tensor:
