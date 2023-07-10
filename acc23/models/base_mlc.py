@@ -1,7 +1,7 @@
 """Base class for multilabel classifiers"""
 __docformat__ = "google"
 
-from typing import Any, Dict, Literal, Optional, Union
+from typing import Any, Dict, Iterable, Literal, Optional, Union
 
 import numpy as np
 import pytorch_lightning as pl
@@ -30,7 +30,7 @@ class BaseMultilabelClassifier(pl.LightningModule):
         lr: float = 1e-4,
         weight_decay: float = 1e-2,
         loss_function: Literal[
-            "bce", "irlbl_bce", "focal", "db", "mse"
+            "bce", "irlbl_bce", "focal", "db", "mse", "mc"
         ] = "db",
         swa_lr: Optional[float] = None,  # 1e-3,
         swa_epoch: Optional[Union[int, float]] = None,  # 10,
@@ -46,10 +46,7 @@ class BaseMultilabelClassifier(pl.LightningModule):
             weight_decay=self.hparams["weight_decay"],
         )
         scheduler = optim.lr_scheduler.ReduceLROnPlateau(
-            optimizer,
-            mode="max",
-            factor=0.5,
-            patience=5,
+            optimizer, mode="max", factor=0.5, patience=5
         )
         # scheduler = optim.lr_scheduler.OneCycleLR(
         #     optimizer,
@@ -114,6 +111,8 @@ class BaseMultilabelClassifier(pl.LightningModule):
             loss = distribution_balanced_loss_with_logits(y_pred, y_true, p)
         elif lfn == "mse":
             loss = nn.functional.mse_loss(y_pred.sigmoid(), y_true)
+        elif lfn == "mc":
+            loss = mc_loss(y_pred.sigmoid(), y_true)
         else:
             raise ValueError(f"Unsupported loss function '{lfn}'")
         if stage is not None:
@@ -388,3 +387,145 @@ def rebalanced_bce_with_logits(
         y_pred, y_true, reduction="none"
     )
     return (r_hat * bce).mean()
+
+
+def to_hierarchical_logits(
+    y: Tensor, mode: Literal["min", "max", "prod"] = "max"
+) -> Tensor:
+    """
+    Given a `(N, N_TRUE_TARGETS)` tensor of true target logits, corrects some
+    of them based on the inherent hierarchy of the targets. The parent/child
+    (aka. superclass/subclass) relationship is as follows:
+
+        0. `Allergy_Present` parent of targets 1, 2, 3, 4
+        1. `Severe_Allergy`
+        2. `Respiratory_Allergy` parent of targets 5, 6, 7, 8, 9, 10, 11, 12,
+           13
+        3. `Food_Allergy` parent of targets 14, 15, 16, 17, 18, 19, 20, 21, 22,
+           23, 24
+        4. `Venom_Allergy` parent of targets 25, 26
+        5. `Type_of_Respiratory_Allergy_ARIA`
+        6. `Type_of_Respiratory_Allergy_CONJ`
+        7. `Type_of_Respiratory_Allergy_GINA`
+        8. `Type_of_Respiratory_Allergy_IGE_Pollen_Gram`
+        9. `Type_of_Respiratory_Allergy_IGE_Pollen_Herb`
+        10. `Type_of_Respiratory_Allergy_IGE_Pollen_Tree`
+        11. `Type_of_Respiratory_Allergy_IGE_Dander_Animals`
+        12. `Type_of_Respiratory_Allergy_IGE_Mite_Cockroach`
+        13. `Type_of_Respiratory_Allergy_IGE_Molds_Yeast`
+        14. `Type_of_Food_Allergy_Aromatics`
+        15. `Type_of_Food_Allergy_Egg`
+        16. `Type_of_Food_Allergy_Fish`
+        17. `Type_of_Food_Allergy_Fruits_and_Vegetables`
+        18. `Type_of_Food_Allergy_Mammalian_Milk`
+        19. `Type_of_Food_Allergy_Oral_Syndrom`
+        20. `Type_of_Food_Allergy_Other_Legumes`
+        21. `Type_of_Food_Allergy_Peanut`
+        22. `Type_of_Food_Allergy_Shellfish`
+        23. `Type_of_Food_Allergy_TPO`
+        24. `Type_of_Food_Allergy_Tree_Nuts`
+        25. `Type_of_Venom_Allergy_ATCD_Venom`
+        26. `Type_of_Venom_Allergy_IGE_Venom`
+
+    The argument `mode` indicates how the logits are corrected.
+
+        * If `mode` is `min`, child logits are capped by that of their parent:
+          $$c' = \\mathrm{min} (c, p)$$ where where $p$ and $c$ are the logits
+          of the parent and child target, and where $c'$ is the new child
+          logit.
+        * If `mode` is `max`, parent logits are corrected to be at least the
+          max of their child: $$p' = \\mathrm{max} (p, c_1, c_2, \\ldots)$$,
+          where $p'$ is the new parent logit, and $c_1, c_2, \\ldots$ are the
+          child logits.
+        * If `mode` is `prod`, child logits are weighed by their parent using
+          the following formula $$\\sigma (c') = \\sigma (p) \\sigma (c)$$,
+
+    """
+
+    def _mask(idxs: Iterable[int]) -> Tensor:
+        """
+        Produces a `(n_true_targets,)` binary tensor m, where `m_i` is 1 iff
+        `i` is in `idx`. The tensor is cast to `float` and moved to the the
+        same device as `y`
+        """
+        m = list(map(lambda i: int(i in idxs), range(n_true_targets)))
+        return torch.tensor(m, dtype=torch.float32, device=y.device)
+
+    # (idx of parent, idx of first child, idx of last child) For example (0, 1,
+    # 4) means that target 0 (Allergy_Present) is the parent of targets 1 to 4
+    # (Severe_Allergy, Respiratory_Allergy, Food_Allergy, and Venom_Allergy).
+    # Children are always contiguous
+    hierarchy = [  # topmost parent to bottommost children
+        (0, 1, 4),
+        (2, 5, 13),
+        (3, 14, 24),
+        (4, 25, 26),
+    ]
+    if mode == "max":  # need to start with the bottommost children
+        hierarchy = hierarchy[::-1]
+    n_true_targets = y.shape[-1]
+    for p, c1, c2 in hierarchy:
+        mc = _mask(range(c1, c2 + 1))  # mc_j = 1 if j child of p
+        if mode == "min":
+            a, b = y[:, [p]].repeat(1, n_true_targets), mc * y
+            c = torch.minimum(a, b)
+            y = c + (1 - mc) * y  # c is already masked
+        elif mode == "max":
+            mp = _mask([p])  # mp_j = 1 if j = p
+            a, b = y[:, p], (mc * y).max(dim=1).values
+            c = torch.maximum(a, b).unsqueeze(-1)
+            y = mp * c + (1 - mp) * y
+        elif mode == "prod":
+            a, b = y[:, [p]].repeat(1, n_true_targets), mc * y
+            c = -torch.log(torch.exp(-a) + torch.exp(-b) + torch.exp(-a - b))
+            # c = \\sigma^{-1} (\\sigma (a) \\sigma (b))
+            y = c + (1 - mc) * y  # c is already masked
+        else:
+            raise ValueError(
+                f"Unsupported logit correction mode '{mode}'. Available modes "
+                "are 'max', 'min', and 'prod'"
+            )
+    return y
+
+
+def mc_loss(y_pred: Tensor, y_true: Tensor) -> Tensor:
+    """
+    Max constraint loss of
+
+        Giunchiglia, Eleonora, and Thomas Lukasiewicz. "Coherent hierarchical
+        multi-label classification networks." Advances in neural information
+        processing systems 33 (2020): 9662-9673.
+
+    y_pred must be prediction probabilities
+    """
+
+    def _mask(idxs: Iterable[int]) -> Tensor:
+        """
+        Produces a `(n_true_targets,)` binary tensor m, where `m_i` is 1 iff
+        `i` is in `idx`. The tensor is cast to `float` and moved to the the
+        same device as `y_pred`
+        """
+        m = list(map(lambda i: int(i in idxs), range(n_true_targets)))
+        return torch.tensor(m, dtype=torch.float32, device=y_pred.device)
+
+    n_true_targets = y_pred.shape[-1]
+    hierarchy = [
+        (0, 1, 4),
+        (2, 5, 13),
+        (3, 14, 24),
+        (4, 25, 26),
+    ]
+    mcm = torch.zeros_like(y_pred, device=y_pred.device)
+    mhy = torch.zeros_like(y_pred, device=y_pred.device)
+    for p, c1, c2 in hierarchy:
+        mp = _mask([p])  # mp_j = 1 if j = p
+        mc = _mask(range(c1, c2 + 1))  # mc_j = 1 if j child of p
+        a = (y_pred * mc).max(dim=1).values
+        # a_i = max (y_pred_ij) for j child of p
+        b = (y_true * y_pred * mc).max(dim=1).values
+        # b_i = max (y_true_ij * y_pred_ij) for j child of p
+        mcm = mcm + mp * a.unsqueeze(-1)
+        mhy = mhy + mp * b.unsqueeze(-1)
+    return -torch.where(
+        y_true == 1, torch.log(mhy + 1e-5), torch.log(1 - mcm + 1e-5)
+    ).mean()

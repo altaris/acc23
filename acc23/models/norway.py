@@ -11,7 +11,7 @@ from torch import Tensor, nn
 
 from acc23.constants import IMAGE_SIZE, N_CHANNELS, N_FEATURES, N_TRUE_TARGETS
 
-from .base_mlc import BaseMultilabelClassifier
+from .base_mlc import BaseMultilabelClassifier, to_hierarchical_logits
 from .layers import MLP, concat_tensor_dict
 from .transformers import CoAttentionVisionTransformer
 
@@ -33,14 +33,14 @@ class Norway(BaseMultilabelClassifier):
             IMAGE_SIZE,
         ),
         out_dim: int = N_TRUE_TARGETS,
-        embed_dim: int = 128,
+        embed_dim: int = 768,
         patch_size: int = 16,
-        n_transformers: int = 8,
-        n_heads: int = 8,
+        n_transformers: int = 12,
+        n_heads: int = 12,
         dropout: float = 0.1,
         activation: str = "gelu",
         pooling: bool = False,
-        mlp_dim: int = 2048,
+        mlp_dim: int = 3072,
         **kwargs,
     ) -> None:
         super().__init__(**kwargs)
@@ -61,7 +61,7 @@ class Norway(BaseMultilabelClassifier):
             out_dim=embed_dim,
             num_transformers=n_transformers,
             num_heads=n_heads,
-            dropout=0.1,
+            dropout=0.0,
             activation=activation,
             headless=True,
         )
@@ -101,4 +101,5 @@ class Norway(BaseMultilabelClassifier):
         a, b = self.pooling(img), self.tat(x)
         a, c = self.vit(a, b)
         abc = torch.concatenate([a, b, c], dim=-1)
+        abc = to_hierarchical_logits(abc, mode="max")
         return self.mlp_head(abc)
