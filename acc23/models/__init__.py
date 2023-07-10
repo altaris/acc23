@@ -16,3 +16,4 @@ from .london import London
 from .masala import Masala
 from .norway import Norway
 from .orchid import Orchid
+from .primus import Primus

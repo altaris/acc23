@@ -12,7 +12,9 @@ from loguru import logger as logging
 from PIL import Image, ImageFile
 from rich.progress import track
 from sklearn.base import TransformerMixin
-from sklearn.experimental import enable_iterative_imputer
+from sklearn.experimental import (
+    enable_iterative_imputer,
+)  # pylint: disable=unused-import
 from sklearn.impute import IterativeImputer, KNNImputer
 from sklearn.preprocessing import (
     FunctionTransformer,
