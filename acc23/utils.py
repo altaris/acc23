@@ -1,9 +1,6 @@
 """General utilities"""
-__docformat__ = "google"
 
 import os
-import re
-from glob import glob
 from pathlib import Path
 from typing import Any, List, Optional, Type, Union
 
@@ -12,10 +9,6 @@ import torch
 from loguru import logger as logging
 from pytorch_lightning.strategies import Strategy
 from pytorch_lightning.utilities import rank_zero_only
-
-
-class NoCheckpointFound(Exception):
-    """Raised by `tdt.utils.last_checkpoint_path` if no checkpoint is found"""
 
 
 @rank_zero_only
@@ -28,40 +21,6 @@ def _load_from_checkpoint(
     """
     logging.debug("Loading checkpoint '{}'", path)
     return cls.load_from_checkpoint(path, **kwargs)
-
-
-def best_device() -> str:
-    """Self-explanatory"""
-    accelerator = os.getenv("PL_ACCELERATOR", "auto").lower()
-    if accelerator == "gpu" and torch.cuda.is_available():
-        return "cuda"
-    if accelerator == "auto":
-        return (
-            "cuda"
-            if torch.cuda.is_available()
-            else "mps"
-            if torch.backends.mps.is_available()
-            else "cpu"
-        )
-    return accelerator
-
-
-def last_checkpoint_path(ckpt_dir: Union[str, Path]) -> Path:
-    """
-    Finds the file path of the last Pytorch Lightning training checkpoint
-    (`ckpt` file) in a given directory. The step count is considered, rather
-    than the epoch count.
-    """
-    d, r = {}, r".*step=(\d+)\.ckpt"
-    for c in glob(str(Path(ckpt_dir) / "*step=*.ckpt")):
-        m = re.match(r, c)
-        if m:
-            d[int(m.group(1))] = c
-    ss = list(d.keys())
-    if not ss:
-        raise NoCheckpointFound
-    sm = max(ss)
-    return Path(d[sm])
 
 
 def train_model(
@@ -89,12 +48,12 @@ def train_model(
         root_dir (Union[str, Path]): The root dir of the trainer. The
             tensorboard logs will be stored under `root_dir/tb_logs/name` and
             the CSV logs under `root_dir/csv_logs/name`.
-        name (Optional[str]): The name of the model. The
+        name (str, optional): The name of the model. The
             tensorboard logs will be stored under `root_dir/tb_logs/name`.
         max_epochs (int): The maximum number of epochs. Note that an early
             stopping callbacks with a patience of 10 monitors the `val/loss`
             metric by default.
-        additional_callbacks (Optional[List[pl.Callback]]): Additional
+        additional_callbacks (List[pl.Callback], optional): Additional
             trainer callbacks. Note that the following callbacks are
             automatically set:
             ```py
@@ -103,7 +62,7 @@ def train_model(
             pl.callbacks.ModelCheckpoint(save_weights_only=True),
             pl.callbacks.RichProgressBar(),
             ```
-        early_stopping_kwargs (Optional[dict]): kwargs for the [`pl.callbacks.EarlyStopping`](https://pytorch-lightning.readthedocs.io/en/latest/api/lightning.pytorch.callbacks.EarlyStopping.html)
+        early_stopping_kwargs (dict, optional): kwargs for the [`pl.callbacks.EarlyStopping`](https://pytorch-lightning.readthedocs.io/en/latest/api/lightning.pytorch.callbacks.EarlyStopping.html)
             callback. By default, it is
             ```py
             {

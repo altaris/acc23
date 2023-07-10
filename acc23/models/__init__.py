@@ -1,19 +1,26 @@
-"""Model prototypes"""
-__docformat__ = "google"
+"""
+Model prototypes:
+
+- Ampere (`acc23.models.ampere.Ampere`): Simple convolution & dense fusion
+  model
+- Gordon (`acc23.models.gordon.Gordon`): A fusion model at the convolution
+  level
+- London (`acc23.models.london.London`): Like Ampere but using a vision
+  transformer
+- Norway (`acc23.models.norway.Norway`): Like Ampere but using a co-attention
+  vision transformer
+- Orchid (`acc23.models.orchid.Orchid`): Uses a TabTransformer and a vision
+  transformer
+- Primus (`acc23.models.primus.Primus`): Like London but the categorical
+  features are embedded
+
+All models have sensible defaults, so you do not need to provide any argument
+to instantiate them.
+"""
 
 from .ampere import Ampere
-from .bastet import Bastet
-from .citrus import Citrus
-from .dexter import Dexter
-from .euclid import Euclid
-from .farzad import Farzad
 from .gordon import Gordon
-from .helena import Helena
-from .ingrid import Ingrid
-from .jackal import Jackal
-from .kadgar import Kadgar
 from .london import London
-from .masala import Masala
 from .norway import Norway
 from .orchid import Orchid
 from .primus import Primus

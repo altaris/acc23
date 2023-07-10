@@ -1,9 +1,4 @@
-"""
-ACC23 main multi-classification model: prototype "Orchid". Like Ampere but the
-convolutional branch is a vision transformer and the tabular branch is a
-`TabTransformer`
-"""
-__docformat__ = "google"
+"""ACC23 model prototype *Orchid*"""
 
 from typing import Any, Dict, Literal, Tuple, Union
 
@@ -27,12 +22,8 @@ from .transformers import TabTransformer
 
 
 class TabularPreprocessor(nn.Module):
-    """
-    Separates numerical features fron binary features, and recombines the
-    latter
-    """
+    """Separates numerical features from the binary features"""
 
-    # pylint: disable=missing-function-docstring
     def forward(
         self,
         x: Dict[str, Tensor],
@@ -40,7 +31,8 @@ class TabularPreprocessor(nn.Module):
     ) -> Tuple[Dict[str, Tensor], Tensor]:
         """
         Returns:
-            The categorical feature tensor and the numerical feature tensor
+            The categorical feature tensor dict and the numerical feature
+            tensor
         """
         cat_columns = [k + "_" + c for k, v in CLASSES.items() for c in v]
         x_cat: Dict[str, Tensor] = {}
@@ -55,17 +47,21 @@ class TabularPreprocessor(nn.Module):
 
 
 class Orchid(BaseMultilabelClassifier):
-    """See module documentation"""
+    """
+    Like Ampere but the convolutional branch is a vision transformer and the
+    tabular branch is a `acc23.models.transformers.TabTransformer`.
+    """
 
-    mlp_head: nn.Module
-    tat_pre: nn.Module  # Tabular feature preprocessing
-    tat: nn.Module  # Tabular transformer
-    vit_proj: nn.Module
-    vit_resize: nn.Module
-    vit: nn.Module  # Vision transformer
+    _mlp_head: nn.Module
+    _tat_pre: nn.Module
+    _tat: nn.Module
+    _vit_proj: nn.Module
+    _vit_resize: nn.Module
+    _vit: nn.Module
 
     def __init__(
         self,
+        n_features: int = N_FEATURES,
         image_shape: Tuple[int, int, int] = (
             N_CHANNELS,
             IMAGE_SIZE,
@@ -79,18 +75,40 @@ class Orchid(BaseMultilabelClassifier):
         dropout: float = 0.1,
         activation: str = "gelu",
         mlp_dim: int = 2048,
-        # pooling: bool = False,
-        # freeze_vit: bool = False,
         vit: Literal["new", "pretrained", "frozen"] = "pretrained",
         **kwargs: Any,
     ) -> None:
+        """
+        Args:
+            n_features (int, optional): Number of numerical tabular features
+            image_shape (Tuple[int, int, int], optional):
+            out_dim (int, optional):
+            embed_dim (int, optional):
+            patch_size (int, optional):
+            n_transformers (int, optional): Ignored if `vit` is not `new`
+            n_heads (int, optional): Ignored if `vit` is not `new`
+            dropout (float, optional):
+            activation (str, optional):
+            mlp_dim (int, optional):
+            vit (Literal["new", "pretrained", "frozen"], optional): How to
+                create the vision transformer:
+                - `new`: a new vision transformer is created (see [Hugging Face
+                Transformer's
+                `ViTModel`s](https://huggingface.co/docs/transformers/v4.30.0/en/model_doc/vit#transformers.ViTModel))
+                - `pretrained`: a pretrained `ViTModel` is used (specifically
+                `google/vit-base-patch16-224`)
+                - `frozen`: same, but the ViT is frozen
+
+        See also:
+            `acc23.models.base_mlc.BaseMultilabelClassifier.__init__`
+        """
         super().__init__(**kwargs)
         self.save_hyperparameters()
         nc, s, _ = image_shape
         n_classes = {k: len(v) for k, v in CLASSES.items()}
-        self.tat_pre = TabularPreprocessor()
-        self.tat = TabTransformer(
-            n_num_features=N_FEATURES - sum(n_classes.values()),
+        self._tat_pre = TabularPreprocessor()
+        self._tat = TabTransformer(
+            n_num_features=n_features - sum(n_classes.values()),
             n_classes=n_classes,
             out_dim=embed_dim,
             embed_dim=embed_dim,
@@ -101,7 +119,7 @@ class Orchid(BaseMultilabelClassifier):
             mlp_dim=mlp_dim,
         )
         if vit == "new":
-            self.vit = ViTModel(
+            self._vit = ViTModel(
                 config=ViTConfig(
                     hidden_size=embed_dim,
                     num_hidden_layers=n_transformers,
@@ -116,31 +134,31 @@ class Orchid(BaseMultilabelClassifier):
                 ),
                 add_pooling_layer=False,
             )
-            self.vit_resize = nn.Identity()
-            self.vit_proj = nn.Identity()
+            self._vit_resize = nn.Identity()
+            self._vit_proj = nn.Identity()
         else:
-            self.vit = ViTModel.from_pretrained(
+            self._vit = ViTModel.from_pretrained(
                 "google/vit-base-patch16-224-in21k"
             )
-            self.vit.requires_grad_(vit != "frozen")
-            if self.vit.pooler is not None:
-                self.vit.pooler.requires_grad_(False)
-            if not isinstance(self.vit, ViTModel):
+            self._vit.requires_grad_(vit != "frozen")
+            if self._vit.pooler is not None:
+                self._vit.pooler.requires_grad_(False)
+            if not isinstance(self._vit, ViTModel):
                 raise RuntimeError(
                     "Pretrained ViT is not a transformers.ViTModel object"
                 )
-            if not isinstance(self.vit.config, ViTConfig):
+            if not isinstance(self._vit.config, ViTConfig):
                 raise RuntimeError(
                     "Pretrained ViT confit is not a transformers.ViTConfig "
                     "object"
                 )
-            self.vit_resize = Resize(
-                self.vit.config.image_size, antialias=True
+            self._vit_resize = Resize(
+                self._vit.config.image_size, antialias=True
             )
-            self.vit_proj = nn.Linear(
-                self.vit.config.hidden_size, embed_dim, bias=False
+            self._vit_proj = nn.Linear(
+                self._vit.config.hidden_size, embed_dim, bias=False
             )
-        self.mlp_head = MLP(
+        self._mlp_head = MLP(
             in_dim=2 * embed_dim,
             hidden_dims=[mlp_dim, out_dim],
             dropout=dropout,
@@ -160,13 +178,14 @@ class Orchid(BaseMultilabelClassifier):
         *_,
         **__,
     ) -> Tensor:
-        x_cat, x_num = self.tat_pre(x, self.device)
+        """Override"""
+        x_cat, x_num = self._tat_pre(x, self.device)
         img = img.to(self.device)  # type: ignore
-        a = self.tat(x_cat, x_num)
-        b = self.vit_resize(img)
-        b = self.vit(b).last_hidden_state[:, 0]
-        b = self.vit_proj(b)
+        a = self._tat(x_cat, x_num)
+        b = self._vit_resize(img)
+        b = self._vit(b).last_hidden_state[:, 0]
+        b = self._vit_proj(b)
         ab = torch.concatenate([a, b], dim=-1)
-        c = self.mlp_head(ab)
+        c = self._mlp_head(ab)
         c = to_hierarchical_logits(c, mode="max")
         return c

@@ -1,8 +1,4 @@
-"""
-ACC23 main multi-classification model: prototype "Norway". Like London, but the
-vision transformer is replaced by a co-attention modal vision transformer.
-"""
-__docformat__ = "google"
+"""ACC23 model prototype *Norway*"""
 
 from typing import Dict, Tuple, Union
 
@@ -17,12 +13,19 @@ from .transformers import CoAttentionVisionTransformer
 
 
 class Norway(BaseMultilabelClassifier):
-    """See module documentation"""
+    """
+    A multimodal model that uses a
+    `acc23.models.transformers.CoAttentionVisionTransformer`. In a nutshell,
+    the tabular data is encoded by a MLP as usual. Then, the image and encoded
+    tabular feature are fed side by side into a
+    `acc23.models.transformers.CoAttentionVisionTransformer` which consists of
+    two intertwined stacks of transformer encoder layers.
+    """
 
-    tat: nn.Module  # Dense input branch
-    pooling: nn.Module
-    vit: nn.Module
-    mlp_head: nn.Module  # Merge branch
+    _tab_mlp: nn.Module  # Dense input branch
+    _vit_pool: nn.Module
+    _vit: nn.Module
+    _mlp_head: nn.Module  # Merge branch
 
     def __init__(
         self,
@@ -43,18 +46,35 @@ class Norway(BaseMultilabelClassifier):
         mlp_dim: int = 3072,
         **kwargs,
     ) -> None:
+        """
+        Args:
+            n_features (int, optional): Number of numerical tabular features
+            image_shape (Tuple[int, int, int], optional):
+            out_dim (int, optional):
+            embed_dim (int, optional):
+            patch_size (int, optional):
+            n_transformers (int, optional):
+            n_heads (int, optional):
+            dropout (float, optional):
+            activation (str, optional):
+            pooling (bool, optional):
+            mlp_dim (int, optional):
+
+        See also:
+            `acc23.models.base_mlc.BaseMultilabelClassifier.__init__`
+        """
         super().__init__(**kwargs)
         self.save_hyperparameters()
         nc, s, _ = image_shape
-        self.tat = MLP(
+        self._tab_mlp = MLP(
             in_dim=n_features,
             hidden_dims=[mlp_dim, embed_dim],
             dropout=dropout,
             activation=activation,
             is_head=False,
         )
-        self.pooling = nn.MaxPool2d(7, 2, 3) if pooling else nn.Identity()
-        self.vit = CoAttentionVisionTransformer(
+        self._vit_pool = nn.MaxPool2d(7, 2, 3) if pooling else nn.Identity()
+        self._vit = CoAttentionVisionTransformer(
             patch_size=patch_size,
             input_shape=((nc, s // 2, s // 2) if pooling else (nc, s, s)),
             embed_dim=embed_dim,
@@ -65,7 +85,7 @@ class Norway(BaseMultilabelClassifier):
             activation=activation,
             headless=True,
         )
-        self.mlp_head = MLP(
+        self._mlp_head = MLP(
             in_dim=3 * embed_dim,
             hidden_dims=[mlp_dim, out_dim],
             dropout=dropout,
@@ -98,8 +118,8 @@ class Norway(BaseMultilabelClassifier):
             x = concat_tensor_dict(x)
         x = x.float().to(self.device)  # type: ignore
         img = img.to(self.device)  # type: ignore
-        a, b = self.pooling(img), self.tat(x)
-        a, c = self.vit(a, b)
+        a, b = self._vit_pool(img), self._tab_mlp(x)
+        a, c = self._vit(a, b)
         abc = torch.concatenate([a, b, c], dim=-1)
         abc = to_hierarchical_logits(abc, mode="max")
-        return self.mlp_head(abc)
+        return self._mlp_head(abc)

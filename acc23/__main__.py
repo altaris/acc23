@@ -1,6 +1,5 @@
 # pylint: disable=import-outside-toplevel
 """Entry point"""
-__docformat__ = "google"
 
 
 import os

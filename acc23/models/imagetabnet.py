@@ -6,7 +6,6 @@ ImageTabNet components from
     Process," in IEEE Access, vol. 10, pp. 33026-33036, 2022, doi:
     10.1109/ACCESS.2022.3158952.
 """
-__docformat__ = "google"
 
 from itertools import zip_longest
 from typing import List, Tuple
@@ -35,7 +34,7 @@ from transformers.models.resnet.modeling_resnet import (
 #         Args:
 #             n_d (int): Dimension of the decision vector of a decision step
 #             n_decision_steps (int): Number of decision steps
-#             activation: Defaults to silu
+#             activation:
 #         """
 #         super().__init__()
 #         # TODO: What is the actual output dimension?
@@ -71,11 +70,11 @@ from transformers.models.resnet.modeling_resnet import (
 class AttentionModule(nn.Module):
     """See Figure 2 of the paper"""
 
-    image_size: int
-    block_1: nn.Module
-    block_2: nn.Module
-    conv: nn.Module
-    linear: nn.Module
+    _image_size: int
+    _block_1: nn.Module
+    _block_2: nn.Module
+    _conv: nn.Module
+    _linear: nn.Module
 
     def __init__(
         self,
@@ -86,49 +85,55 @@ class AttentionModule(nn.Module):
         """
         Args:
             in_channels (int):
-            in_features (int): Dimension of the output of tabnet
-            activation (str): Defaults to silu
+            in_features (int):
+            activation (str):
         """
-        nc, self.image_size, _ = image_shape
+        nc, self._image_size, _ = image_shape
         super().__init__()
-        self.block_1 = nn.Sequential(
+        self._block_1 = nn.Sequential(
             nn.Conv2d(nc, nc, 1, 1, 0, bias=False),
             nn.Softmax(dim=1),
         )
-        self.block_2 = nn.Sequential(
+        self._block_2 = nn.Sequential(
             nn.Conv2d(nc, nc, 1, 1, 0, bias=False),
-            nn.LayerNorm([nc, self.image_size, self.image_size]),
+            nn.LayerNorm([nc, self._image_size, self._image_size]),
             get_activation(activation),
         )
         # **Linear** projection
-        self.linear = nn.Linear(in_features, nc, bias=False)
-        self.conv = nn.Conv2d(nc, nc, 1, 1, 0, bias=False)
+        self._linear = nn.Linear(in_features, nc, bias=False)
+        self._conv = nn.Conv2d(nc, nc, 1, 1, 0, bias=False)
 
-    # pylint: disable=missing-function-docstring
     def forward(self, x: Tensor, h: Tensor, *_, **__) -> Tensor:
-        u = self.block_1(x) * x
-        u = self.block_2(u)
-        v = self.linear(h)
+        """
+        Args:
+            x (Tensor): Image
+            h (Tensor): Encoded tabular data
+        """
+        u = self._block_1(x) * x
+        u = self._block_2(u)
+        v = self._linear(h)
         # v = torch.stack([v] * u.shape[2] * u.shape[3],
         # dim=-1).reshape(u.shape)
         v = v.unsqueeze(-1).unsqueeze(-1)
-        v = v.repeat((1, 1, self.image_size, self.image_size))
+        v = v.repeat((1, 1, self._image_size, self._image_size))
         w = u + v  # add v along the channels of every location ("pixel") of u
-        w = self.conv(w)
+        w = self._conv(w)
         return x + w
 
 
 class VisionEncoder(nn.Module):
     """
     It is a succession of blocks that look like
-    1. `ResNetConvLayer`: a residual convolutional block that cuts the image
-        size (height and width) by half;
+    1. `ResNetConvLayer` (from [Hugging Face
+        Transformers](https://huggingface.co/docs/transformers/index), although
+        undocumented): a residual convolutional block that cuts the image size
+        (height and width) by half;
     2. `AttentionModule` that incorporates the feature vector into the channels
        of the image.
     """
 
-    encoder_layers: nn.ModuleList
-    fusion_layers: nn.ModuleList
+    _encoder_layers: nn.ModuleList
+    _fusion_layers: nn.ModuleList
 
     def __init__(
         self,
@@ -144,16 +149,15 @@ class VisionEncoder(nn.Module):
             out_channels (List[int]):
             in_features (int): Dimension of the feature vector to inject after
                 each convolution stage
-            n_decision_steps (int): Number of decision steps
-            activation (str): Defaults to silu
+            activation (str):
             attention_after_last (bool): Whether to add an attention module
-                after the last residual block, defaults to `False`.
+                after the last residual block
         """
         super().__init__()
         nc, s, _ = image_shape
         c = [nc] + out_channels
         config = ResNetConfig(layer_type="basic", hidden_act=activation)
-        self.encoder_layers = nn.ModuleList(
+        self._encoder_layers = nn.ModuleList(
             [
                 # ResNetConvLayer(c[i - 1], c[i], 3, 2, activation)
                 # ResNetBasicLayer(
@@ -164,7 +168,7 @@ class VisionEncoder(nn.Module):
             ]
         )
         k = len(out_channels) if attention_after_last else -1
-        self.fusion_layers = nn.ModuleList(
+        self._fusion_layers = nn.ModuleList(
             [
                 AttentionModule(
                     (a, s // (2 ** (i + 1)), s // (2 ** (i + 1))),
@@ -178,11 +182,11 @@ class VisionEncoder(nn.Module):
     def forward(self, img: Tensor, h: Tensor, *_, **__) -> Tensor:
         """
         Args:
-            img (Tensor):
-            h (Tensor):
+            img (Tensor): Image
+            h (Tensor): Encoded tabular features
         """
         # itertool.zip_longest pads the shorter sequence with None's
-        for c, f in zip_longest(self.encoder_layers, self.fusion_layers):
+        for c, f in zip_longest(self._encoder_layers, self._fusion_layers):
             img = c(img)
             if f is not None:
                 img = f(img, h)

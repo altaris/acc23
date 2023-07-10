@@ -1,9 +1,4 @@
-"""
-ACC23 main multi-classification model: prototype "Primus". Like Orchid but the
-`TabTransformer` branch is simplified: the categorical features are embedded,
-merged with the continuous features, and pass through a simple mlp.
-"""
-__docformat__ = "google"
+"""ACC23 model prototype *Primus*"""
 
 from typing import Any, Dict, Literal, Tuple, Union
 
@@ -33,7 +28,6 @@ class TabularPreprocessor(nn.Module):
     TODO: Same as in Orchid
     """
 
-    # pylint: disable=missing-function-docstring
     def forward(
         self,
         x: Dict[str, Tensor],
@@ -75,35 +69,42 @@ class CategoricalEmbedding(nn.Module):
             }
         )
 
-    # pylint: disable=missing-function-docstring
     def forward(
         self,
         x: Dict[str, Tensor],
     ) -> Tensor:
+        """Override"""
         a = {k: self.emb[k](v) for k, v in x.items()}
         return concat_tensor_dict(a)
 
 
 class Primus(BaseMultilabelClassifier):
-    """See module documentation"""
+    """
+    Like Orchid but the `acc23.models.transformers.TabTransformer` is replaced
+    by a simpler module: the categorical features are embedded, merged with the
+    continuous features, and passed through a simple MLP. As usual, the image
+    is passed through a vision transformer. The result of both branches are
+    concatenated and fed through a MLP head.
+    """
 
-    mlp_head: nn.Module
-    tab_pre: nn.Module  # Tabular feature preprocessing
-    cat_emb: CategoricalEmbedding  # Embedding for each categorical feature
-    tab_mlp: nn.Module  # Tabular MLP
-    vit_proj: nn.Module
-    vit_resize: nn.Module
-    vit: nn.Module  # Vision transformer
+    _mlp_head: nn.Module
+    _tab_pre: nn.Module
+    _cat_emb: CategoricalEmbedding
+    _tab_mlp: nn.Module
+    _vit_proj: nn.Module
+    _vit_resize: nn.Module
+    _vit: nn.Module
 
     def __init__(
         self,
+        n_features: int = N_FEATURES,
         image_shape: Tuple[int, int, int] = (
             N_CHANNELS,
             IMAGE_SIZE,
             IMAGE_SIZE,
         ),
         out_dim: int = N_TRUE_TARGETS,
-        cat_embed_dim: int = 16,  # Embedding dimension for categorical features
+        cat_embed_dim: int = 16,
         embed_dim: int = 128,
         dropout: float = 0.5,
         activation: str = "gelu",
@@ -113,37 +114,56 @@ class Primus(BaseMultilabelClassifier):
         vit: Literal["pretrained", "frozen"] = "pretrained",
         **kwargs: Any,
     ) -> None:
+        """
+        Args:
+            n_features (int, optional): Number of numerical tabular features
+            image_shape (Tuple[int, int, int], optional):
+            out_dim (int, optional):
+            cat_embed_dim (int, optional): Embedding dimension for categorical
+                features
+            dropout (float, optional):
+            activation (str, optional):
+            mlp_dim (int, optional):
+            vit (Literal["new", "pretrained", "frozen"], optional): How to
+                create the vision transformer:
+                - `pretrained`: a pretrained `ViTModel` is used (specifically
+                `google/vit-base-patch16-224`)
+                - `frozen`: same, but the ViT is frozen
+
+        See also:
+            `acc23.models.base_mlc.BaseMultilabelClassifier.__init__`
+        """
         super().__init__(**kwargs)
         self.save_hyperparameters()
         n_classes = {a: len(b) for a, b in CLASSES.items()}
-        n_cont_features = N_FEATURES - sum(n_classes.values())
-        self.tab_pre = TabularPreprocessor()
-        self.cat_emb = CategoricalEmbedding(n_classes, cat_embed_dim)
-        self.tab_mlp = MLP(
+        n_cont_features = n_features - sum(n_classes.values())
+        self._tab_pre = TabularPreprocessor()
+        self._cat_emb = CategoricalEmbedding(n_classes, cat_embed_dim)
+        self._tab_mlp = MLP(
             len(n_classes) * cat_embed_dim + n_cont_features,
             [embed_dim],
             dropout=dropout,
         )
-        self.vit = ViTModel.from_pretrained(
+        self._vit = ViTModel.from_pretrained(
             "google/vit-base-patch16-224-in21k"
         )
-        self.vit.requires_grad_(vit != "frozen")
-        if self.vit.pooler is not None:
-            self.vit.pooler.requires_grad_(False)
-        if not isinstance(self.vit, ViTModel):
+        self._vit.requires_grad_(vit != "frozen")
+        if self._vit.pooler is not None:
+            self._vit.pooler.requires_grad_(False)
+        if not isinstance(self._vit, ViTModel):
             raise RuntimeError(
                 "Pretrained ViT is not a transformers.ViTModel object"
             )
-        if not isinstance(self.vit.config, ViTConfig):
+        if not isinstance(self._vit.config, ViTConfig):
             raise RuntimeError(
                 "Pretrained ViT confit is not a transformers.ViTConfig "
                 "object"
             )
-        self.vit_resize = Resize(self.vit.config.image_size, antialias=True)
-        self.vit_proj = nn.Linear(
-            self.vit.config.hidden_size, embed_dim, bias=False
+        self._vit_resize = Resize(self._vit.config.image_size, antialias=True)
+        self._vit_proj = nn.Linear(
+            self._vit.config.hidden_size, embed_dim, bias=False
         )
-        self.mlp_head = MLP(
+        self._mlp_head = MLP(
             in_dim=2 * embed_dim,
             hidden_dims=[mlp_dim, out_dim],
             dropout=dropout,
@@ -164,15 +184,15 @@ class Primus(BaseMultilabelClassifier):
         *_,
         **__,
     ) -> Tensor:
-        x_cat, x_num = self.tab_pre(x, self.device)
+        x_cat, x_num = self._tab_pre(x, self.device)
         img = img.to(self.device)  # type: ignore
-        x_cat = self.cat_emb(x_cat)
+        x_cat = self._cat_emb(x_cat)
         u = torch.concatenate([x_cat, x_num], dim=-1)
-        u = self.tab_mlp(u)
-        v = self.vit_resize(img)
-        v = self.vit(v).last_hidden_state[:, 0]
-        v = self.vit_proj(v)
+        u = self._tab_mlp(u)
+        v = self._vit_resize(img)
+        v = self._vit(v).last_hidden_state[:, 0]
+        v = self._vit_proj(v)
         uv = torch.concatenate([u, v], dim=-1)
-        w = self.mlp_head(uv)
+        w = self._mlp_head(uv)
         # w = to_hierarchical_logits(w, mode="max")
         return w
