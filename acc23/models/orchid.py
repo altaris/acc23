@@ -21,7 +21,7 @@ from acc23.constants import (
     N_TRUE_TARGETS,
 )
 
-from .base_mlc import BaseMultilabelClassifier
+from .base_mlc import BaseMultilabelClassifier, to_hierarchical_logits
 from .layers import MLP, concat_tensor_dict
 from .transformers import TabTransformer
 
@@ -168,4 +168,5 @@ class Orchid(BaseMultilabelClassifier):
         b = self.vit_proj(b)
         ab = torch.concatenate([a, b], dim=-1)
         c = self.mlp_head(ab)
+        c = to_hierarchical_logits(c, mode="max")
         return c
