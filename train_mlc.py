@@ -65,11 +65,11 @@ def main():
         root_dir="out",
         early_stopping_kwargs={
             "check_finite": True,
-            "mode": "max",
-            "monitor": "val/f1",
+            "mode": "min",
+            "monitor": "val/loss",
             "patience": 20,
         },
-        max_epochs=200,
+        max_epochs=100,
     )
     evaluate_model(model, datamodule)
 
