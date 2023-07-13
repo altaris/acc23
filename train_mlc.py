@@ -65,9 +65,10 @@ def main():
         root_dir="out",
         early_stopping_kwargs={
             "check_finite": True,
-            "mode": "min",
-            "monitor": "val/loss",
+            "mode": "max",
+            "monitor": "val/f1",
             "patience": 20,
+            "min_delta": 1e-2,
         },
         max_epochs=100,
     )
