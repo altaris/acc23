@@ -78,7 +78,7 @@ class BaseMultilabelClassifier(pl.LightningModule):
             weight_decay=self.hparams["weight_decay"],
         )
         scheduler = optim.lr_scheduler.ReduceLROnPlateau(
-            optimizer, mode="min", factor=0.5, patience=5
+            optimizer, mode="max", factor=0.5, patience=10, threshold=1e-2
         )
         # scheduler = optim.lr_scheduler.OneCycleLR(
         #     optimizer,
@@ -89,7 +89,7 @@ class BaseMultilabelClassifier(pl.LightningModule):
         return {
             "optimizer": optimizer,
             "lr_scheduler": scheduler,
-            "monitor": "val/loss",
+            "monitor": "val/f1",
         }
 
     def evaluate(
