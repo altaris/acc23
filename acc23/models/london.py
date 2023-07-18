@@ -24,6 +24,7 @@ class London(BaseMultilabelClassifier):
     _vit_proj: nn.Module
     _vit_resize: nn.Module
     _vit: nn.Module
+    _pool: nn.Module
 
     def __init__(
         self,
@@ -40,8 +41,9 @@ class London(BaseMultilabelClassifier):
         n_heads: int = 8,
         dropout: float = 0.1,
         activation: str = "gelu",
-        mlp_dim: int = 2048,
+        mlp_dim: int = 256,
         vit: Literal["new", "pretrained", "frozen"] = "pretrained",
+        pooling: bool = True,
         **kwargs: Any,
     ) -> None:
         """
@@ -78,6 +80,7 @@ class London(BaseMultilabelClassifier):
             activation=activation,
             is_head=False,
         )
+        self._pool = nn.MaxPool2d(5, 1, 2) if pooling else nn.Identity()
         if vit == "new":
             self._vit = ViTModel(
                 config=ViTConfig(
@@ -150,7 +153,8 @@ class London(BaseMultilabelClassifier):
         x = x.float().to(self.device)  # type: ignore
         img = img.to(self.device)  # type: ignore
         a = self._tab_mlp(x)
-        b = self._vit_resize(img)
+        b = self._pool(img)
+        b = self._vit_resize(b)
         b = self._vit(b).last_hidden_state[:, 0]
         b = self._vit_proj(b)
         ab = torch.concatenate([a, b], dim=-1)
