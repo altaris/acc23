@@ -106,11 +106,9 @@ class Primus(BaseMultilabelClassifier):
         out_dim: int = N_TRUE_TARGETS,
         cat_embed_dim: int = 16,
         embed_dim: int = 128,
-        dropout: float = 0.5,
+        dropout: float = 0.25,
         activation: str = "gelu",
         mlp_dim: int = 2048,
-        # pooling: bool = False,
-        # freeze_vit: bool = False,
         vit: Literal["pretrained", "frozen"] = "pretrained",
         **kwargs: Any,
     ) -> None:

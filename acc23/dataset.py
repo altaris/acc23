@@ -9,8 +9,9 @@ from typing import Callable, Dict, Optional, Tuple, Union
 import pandas as pd
 import pytorch_lightning as pl
 import torch
-from torch.utils.data import DataLoader, Dataset
 from loguru import logger as logging
+
+from torch.utils.data import DataLoader, Dataset
 
 from acc23.constants import IMAGE_SIZE, N_CHANNELS, TARGETS, TRUE_TARGETS
 from acc23.preprocessing import load_csv, load_image
@@ -92,6 +93,8 @@ class ACCDataModule(pl.LightningDataModule):
     ds_pred: Optional[ACCDataset] = None
     ds_test: Optional[ACCDataset] = None
 
+    _split_ratio: float
+
     def __init__(
         self,
         train_csv_file_path: Union[str, Path] = "data/train.csv",
@@ -99,6 +102,7 @@ class ACCDataModule(pl.LightningDataModule):
         image_dir_path: Union[str, Path] = "data/images",
         dataloader_kwargs: Optional[dict] = None,
         data_cache_path: Union[str, Path] = "out/data.cache",
+        split_ratio: float = 0.8,
     ) -> None:
         """
         Args:
@@ -108,6 +112,10 @@ class ACCDataModule(pl.LightningDataModule):
             dataloader_kwargs (dict, optional): Default to
                 `acc23.dataset.DEFAULT_DATALOADER_KWARGS`.
             data_cache_path (Union[str, Path]): Path for data cache folder
+            split_ratio (float): Split ratio for the train and validation
+                dataset. A ratio of .8 (the default) means that 80% of samples
+                are in the train dataset, whereas the other 20% are used in the
+                validation dataset.
         """
         super().__init__()
         self.data_cache_path = Path(data_cache_path)
@@ -115,6 +123,7 @@ class ACCDataModule(pl.LightningDataModule):
         self.image_dir_path = Path(image_dir_path)
         self.test_csv_file_path = Path(test_csv_file_path)
         self.train_csv_file_path = Path(train_csv_file_path)
+        self._split_ratio = split_ratio
 
     def prepare_data(self) -> None:
         """
@@ -136,21 +145,29 @@ class ACCDataModule(pl.LightningDataModule):
 
         # Quick and dirty
         import turbo_broccoli as tb
-        from sklearn.impute import KNNImputer
+        from sklearn.impute import IterativeImputer, KNNImputer
+        from sklearn.experimental import (
+            enable_iterative_imputer,
+        )  # pylint: disable=unused-import
 
         a = load_csv(
-            self.train_csv_file_path, impute=False, drop_nan_targets=False
+            self.train_csv_file_path,
+            impute=False,
+            drop_nan_targets=False,
         )
         b = load_csv(
-            self.test_csv_file_path, impute=False, drop_nan_targets=False
+            self.test_csv_file_path,
+            impute=False,
+            drop_nan_targets=False,
         )
         c = pd.concat([a, b], axis=0)
         c = c.drop(columns=TARGETS + ["Chip_Image_Name"])
-        knn = KNNImputer().fit(c.to_numpy())
+        imp = KNNImputer(n_neighbors=10).fit(c.to_numpy())
+        # imp = IterativeImputer().fit(c.to_numpy())
         tb.set_artifact_path(self.data_cache_path)
-        tb.save_json(knn, self.data_cache_path / "imputer.json")
+        tb.save_json(imp, self.data_cache_path / "imputer.json")
         logging.warning(
-            "Done quick & dirty imputer fit. Refactor that soon ok?"
+            "Done quick & dirty imputer fit. Refactor that soon ok? <3"
         )
 
         dfs: Dict[str, pd.DataFrame] = {}
@@ -175,8 +192,8 @@ class ACCDataModule(pl.LightningDataModule):
             drop_nan_targets=False,  # There are no targets in pred ds =)
             oversample=False,
         )
-        n, split_ratio = len(df_tv), 0.8  # TODO: Dehardcode
-        idxs, m = torch.randperm(n), int(split_ratio * n)
+        idxs = torch.randperm(len(df_tv))
+        m = int(self._split_ratio * len(df_tv))
         dfs["train"], dfs["val"] = df_tv.iloc[idxs[:m]], df_tv.iloc[idxs[m:]]
         for k, df in dfs.items():
             df.to_csv(self.data_cache_path / f"{k}.csv", index=False)
@@ -184,7 +201,8 @@ class ACCDataModule(pl.LightningDataModule):
     def setup(self, stage: str) -> None:
         """
         Overrides
-        [pl.LightningDataModule.setup](https://lightning.ai/docs/pytorch/stable/data/datamodule.html#setup). This is automatically called so don't worry about it.
+        [pl.LightningDataModule.setup](https://lightning.ai/docs/pytorch/stable/data/datamodule.html#setup).
+        This is automatically called so don't worry about it.
         """
         if stage == "fit":
             df_train = pd.read_csv(self.data_cache_path / "train.csv")

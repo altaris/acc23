@@ -33,12 +33,12 @@ class BaseMultilabelClassifier(pl.LightningModule):
     def __init__(
         self,
         lr: float = 1e-4,
-        weight_decay: float = 1e-2,
+        weight_decay: float = 1e-4,
         loss_function: Literal[
             "bce", "irlbl_bce", "focal", "db", "mse", "mc"
         ] = "db",
-        swa_lr: Optional[float] = None,  # 1e-3,
-        swa_epoch: Optional[Union[int, float]] = None,  # 10,
+        swa_lr: Optional[float] = None,
+        swa_epoch: Optional[Union[int, float]] = None,
         **kwargs,
     ) -> None:
         """
@@ -78,14 +78,19 @@ class BaseMultilabelClassifier(pl.LightningModule):
             weight_decay=self.hparams["weight_decay"],
         )
         scheduler = optim.lr_scheduler.ReduceLROnPlateau(
-            optimizer, mode="max", factor=0.5, patience=10, threshold=1e-2
+            optimizer,
+            mode="max",
+            factor=0.5,
+            patience=10,
+            # threshold=1e-3,
         )
         # scheduler = optim.lr_scheduler.OneCycleLR(
         #     optimizer,
-        #     max_lr=1e-3,
-        #     steps_per_epoch=28,  # TODO: do not hardcode
-        #     epochs=200,  # TODO: do not hardcode
+        #     max_lr=1e-2,
+        #     steps_per_epoch=9,  # TODO: do not hardcode
+        #     epochs=100,  # TODO: do not hardcode
         # )
+        # scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, 100)
         return {
             "optimizer": optimizer,
             "lr_scheduler": scheduler,
