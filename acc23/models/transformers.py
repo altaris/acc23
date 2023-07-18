@@ -550,13 +550,19 @@ class TabTransformer(nn.Module):
             ]
         )
         self._norm = nn.LayerNorm(n_num_features)
-        self._mlp = nn.Sequential(
-            nn.Linear(len(n_classes) * embed_dim + n_num_features, mlp_dim),
-            get_activation(activation),
-            nn.Dropout(dropout),
-            nn.Linear(mlp_dim, out_dim),
-            get_activation(activation),
+        self._mlp = MLP(
+            len(n_classes) * embed_dim + n_num_features,
+            [mlp_dim, out_dim],
+            dropout=dropout,
+            activation=activation,
         )
+        # self._mlp = nn.Sequential(
+        #     nn.Linear(len(n_classes) * embed_dim + n_num_features, mlp_dim),
+        #     get_activation(activation),
+        #     nn.Dropout(dropout),
+        #     nn.Linear(mlp_dim, out_dim),
+        #     get_activation(activation),
+        # )
 
     def forward(self, x_cat: Dict[str, Tensor], x_num: Tensor) -> Tensor:
         """
