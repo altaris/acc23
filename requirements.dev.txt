@@ -1,6 +1,6 @@
 black
+matplotlib
 mypy
 pdoc
 pylint
 types-click
-types-requests
