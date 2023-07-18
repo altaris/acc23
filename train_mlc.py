@@ -57,8 +57,43 @@ def evaluate_model(
 
 
 def main():
-    model = models.Orchid()  # SET CORRECT MODEL CLASS HERE
-    datamodule = ACCDataModule()
+    # model = models.Primus(
+    #     cat_embed_dim=16,
+    #     embed_dim=128,
+    #     dropout=.25,
+    #     loss_function="db",
+    # )
+    # model = models.London(
+    #     embed_dim=64,
+    #     mlp_dim=256,
+    #     dropout=0.2,
+    #     lr=1e-3,
+    #     weight_decay=0,
+    #     loss_function="bce",
+    # )
+    # model = models.Norway(
+    #     embed_dim=512,
+    #     n_transformers=16,
+    #     n_heads=8,
+    #     dropout=0.1,
+    #     pooling=True,
+    #     mlp_dim=2048,
+    #     lr=1e-3,
+    #     weight_decay=1e-3,
+    #     loss_function="bce",
+    # )
+    model = models.Orchid(
+        embed_dim=512,
+        mlp_dim=512,
+        dropout=0.1,
+        weight_decay=1e-4,
+        loss_function="db",
+        lr=1e-4,
+        swa_lr=5e-5,
+        swa_epoch=20,
+    )
+    # model = models.Ampere()
+    datamodule = ACCDataModule(split_ratio=0.7)
     model = train_model(
         model,
         datamodule,
@@ -68,7 +103,7 @@ def main():
             "mode": "max",
             "monitor": "val/f1",
             "patience": 20,
-            "min_delta": 1e-2,
+            # "min_delta": 1e-2,
         },
         max_epochs=100,
     )

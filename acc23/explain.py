@@ -154,6 +154,7 @@ class VitExplainer:
 
     See also:
         https://jacobgil.github.io/deeplearning/vision-transformer-explainability
+        https://arxiv.org/abs/2005.00928
 
     TODO:
         Batch the whole thing

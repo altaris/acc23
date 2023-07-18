@@ -1,15 +1,11 @@
 click
-diffusers[training]
 git+https://github.com/altaris/turbo-broccoli.git
 loguru
-matplotlib
 numpy==1.23
 opencv-python
 Pillow
 pytorch-lightning==2.0.0
 rich
-safetensors
-scikit-image
 scikit-learn
 sklearn-pandas
 tensorboard

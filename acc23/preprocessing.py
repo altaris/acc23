@@ -355,10 +355,10 @@ def load_csv(
 
 def load_image(
     path: Union[str, Path],
-    preserve_aspect_ratio: bool = False,
+    preserve_aspect_ratio: bool = True,
     image_mean: Optional[float] = 0.5,
     image_std: Optional[float] = 0.5,
-    noise_std: Optional[float] = None,
+    noise_std: Optional[float] = 0.05,
     pe_weight: Optional[float] = None,
 ) -> Tensor:
     """

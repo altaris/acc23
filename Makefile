@@ -1,7 +1,7 @@
 DOCS_PATH 		= docs
 SRC_PATH 		= acc23
 VENV			= ./venv
-PDOC			= pdoc -d google --math --mermaid
+PDOC			= pdoc -d google --math
 
 .ONESHELL:
 

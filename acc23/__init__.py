@@ -4,7 +4,7 @@
 
 from .constants import *
 from .dataset import ACCDataModule, ACCDataset
-from .explain import VitExplainer, imshow
+from .explain import VitExplainer, imshow, shap
 from .mlsmote import irlbl, mlsmote, remedial
 from .models import *
 from .postprocessing import (
@@ -13,3 +13,4 @@ from .postprocessing import (
     output_to_dataframe,
 )
 from .preprocessing import load_csv, load_image
+from .utils import train_model
