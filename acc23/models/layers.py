@@ -1,17 +1,10 @@
 """Various stuff that don't fit in other modules"""
 
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Dict, List
 
 import torch
 from torch import Tensor, nn
-from transformers.models.resnet.modeling_resnet import (
-    ResNetConvLayer,
-    ResNetBasicLayer,
-)
 from transformers.activations import get_activation
-
-
-from acc23.constants import IMAGE_SIZE
 
 
 class MLP(nn.Sequential):

@@ -9,8 +9,8 @@ Model prototypes:
   transformer
 - Norway (`acc23.models.norway.Norway`): Like Ampere but using a co-attention
   vision transformer
-- Orchid (`acc23.models.orchid.Orchid`): Uses a TabTransformer and a vision
-  transformer
+- Orchid (`acc23.models.orchid.Orchid`): Uses a
+  `acc23.models.transformers.TabTransformer` and a vision transformer
 - Primus (`acc23.models.primus.Primus`): Like London but the categorical
   features are embedded
 
