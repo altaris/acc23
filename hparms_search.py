@@ -42,13 +42,17 @@ def main():
     metric, metric_mode = "val/f1", "max"
     max_epochs, num_samples = 50, 10
     hparams_config = {
-        "embed_dim": tune.choice([32, 128, 512]),
-        "patch_size": tune.choice([8]),
-        "n_transformers": tune.choice([8, 16, 32]),
-        "n_heads": tune.choice([8, 16]),
-        "dropout": tune.choice([0.1, 0.25, 0.5]),
-        "mlp_dim": tune.choice([32, 512, 2048, 4096]),
-        # "lr": tune.choice([1e-4]),  # tune.loguniform(1e-4, 1e-1),
+        # "embed_dim": tune.choice([32, 128, 512]),
+        # "patch_size": tune.choice([8]),
+        # "n_transformers": tune.choice([8, 16, 32]),
+        # "n_heads": tune.choice([8, 16]),
+        "dropout": tune.choice([0.1, 0.2, 0.5]),
+        # "mlp_dim": tune.choice([32, 512, 2048, 4096]),
+        "freeze_vit": tune.choice([True, False]),
+        "weight_decay": tune.choice([0.0, 1e-3, 5e-3]),
+        "lr": tune.choice([1e-4, 5e-4, 1e-3]),
+        "swa_lr": tune.choice([1e-4, 5e-4, 1e-3]),
+        "swa_epoch": tune.choice([5, 10, 20])
     }
     scheduler = ASHAScheduler(
         max_t=max_epochs,

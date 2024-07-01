@@ -26,12 +26,12 @@ def main():
         root_dir="out",
         name=model.__class__.__name__.lower(),
         additional_callbacks=[GenerateCallback(ds.sample(4))],
-        early_stopping_kwargs={
-            "check_finite": True,
-            "mode": "min",
-            "monitor": "val/loss",
-            "patience": 20,
-        },
+        # early_stopping_kwargs={
+        #     "check_finite": True,
+        #     "mode": "min",
+        #     "monitor": "val/loss",
+        #     "patience": 20,
+        # },
     )
 
 
