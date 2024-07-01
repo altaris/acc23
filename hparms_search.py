@@ -52,7 +52,7 @@ def main():
         "weight_decay": tune.choice([0.0, 1e-3, 5e-3]),
         "lr": tune.choice([1e-4, 5e-4, 1e-3]),
         "swa_lr": tune.choice([1e-4, 5e-4, 1e-3]),
-        "swa_epoch": tune.choice([5, 10, 20])
+        "swa_epoch": tune.choice([5, 10, 20]),
     }
     scheduler = ASHAScheduler(
         max_t=max_epochs,
